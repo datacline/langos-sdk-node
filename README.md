@@ -51,6 +51,14 @@ if (fresh.status === 'completed' && fresh.latestSessionId) {
 
 Set `Authorization: Bearer <api_key>`. The SDK does this for you — just pass `apiKey` to the constructor. API keys are issued by the Langos workspace owner via the recruiter dashboard.
 
+## Other integration paths
+
+Langos integrates with ATS platforms directly (Ashby today; more coming). If your team uses Ashby, you can connect Langos via the Ashby App Marketplace instead of this SDK — both paths surface the same `/v1/account` data, but Ashby manages auth on your behalf. Use this SDK when you want a direct API integration; use the Ashby flow when you'd rather operate Langos inside Ashby's UI.
+
+The `account.integration.provider` field tells you which path your key is using:
+- `'customer'` — you minted this key from the Langos dashboard (this SDK)
+- `'ashby'` (or another ATS slug) — Langos was wired through your ATS partner
+
 ## Resources
 
 | Resource | Methods |

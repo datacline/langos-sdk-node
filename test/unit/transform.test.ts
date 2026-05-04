@@ -1,10 +1,60 @@
 import { describe, it, expect } from 'vitest';
 import {
+  accountFromWire,
   assessmentFromWire,
   candidateFromWire,
   candidateCreateToWire,
   sessionFromWire,
 } from '../../src/core/transform.js';
+
+/**
+ * Sample wire shape mirroring what `/v1/account` returns post plan-tier
+ * consolidation. Keep in sync with `services/customer/v1Service.js#retrieveAccount`.
+ */
+const ACCOUNT_WIRE_FIXTURE = {
+  object: 'account',
+  id: 'cmp_01H8XYZ',
+  name: 'Acme, Inc.',
+  slug: 'acme',
+  plan_tier: 'mid_tier',
+  billing_cycle: 'monthly',
+  status: 'active',
+  sessions_used: 7,
+  sessions_limit: 10,
+  sessions_remaining: 3,
+  trial_ends_at: null,
+  features: {
+    web_ide_enabled: true,
+    replay_enabled: true,
+    ai_assistance_enabled: true,
+  },
+  plan_caps: {
+    label: 'Mid-tier',
+    price_monthly: 190,
+    billing: 'monthly',
+    currency: 'USD',
+    session_limit: 10,
+    ready_made_challenges: 5,
+    custom_challenges_max: 5,
+    features: {
+      web_ide: true,
+      replay: true,
+      ai_assistance: true,
+      sso: false,
+    },
+    support: 'priority_email',
+    popular: true,
+    contact_sales: false,
+  },
+  integration: {
+    provider: 'customer',
+    name: 'Greenhouse Connector',
+    api_key_prefix: 'langos_l',
+    scopes: ['account:read', 'candidates:write'],
+    rate_limit_per_minute: 600,
+    webhook_url: 'https://hooks.example.com/langos',
+  },
+};
 
 describe('transform: assessment', () => {
   it('maps snake_case to camelCase', () => {
@@ -70,6 +120,78 @@ describe('transform: candidate', () => {
     expect(w.name).toBeNull();
     expect(w.external_id).toBeNull();
     expect(w.metadata).toBeNull();
+  });
+});
+
+describe('transform: account', () => {
+  it('maps the post-consolidation /v1/account shape', () => {
+    const a = accountFromWire(ACCOUNT_WIRE_FIXTURE);
+    expect(a.id).toBe('cmp_01H8XYZ');
+    expect(a.slug).toBe('acme');
+    expect(a.planTier).toBe('mid_tier');
+    expect(a.sessionsRemaining).toBe(3);
+    expect(a.features.webIdeEnabled).toBe(true);
+    expect(a.features.aiAssistanceEnabled).toBe(true);
+    expect(a.planCaps?.label).toBe('Mid-tier');
+    expect(a.planCaps?.priceMonthly).toBe(190);
+    expect(a.planCaps?.billing).toBe('monthly');
+    expect(a.planCaps?.currency).toBe('USD');
+    expect(a.planCaps?.sessionLimit).toBe(10);
+    expect(a.planCaps?.readyMadeChallenges).toBe(5);
+    expect(a.planCaps?.customChallengesMax).toBe(5);
+    expect(a.planCaps?.popular).toBe(true);
+    expect(a.planCaps?.contactSales).toBe(false);
+    expect(a.planCaps?.features.web_ide).toBe(true);
+    expect(a.planCaps?.features.sso).toBe(false);
+    expect(a.integration.provider).toBe('customer');
+    expect(a.integration.scopes).toContain('account:read');
+  });
+
+  it('emits empty slug rather than throwing if the server omits it', () => {
+    const { slug, ...withoutSlug } = ACCOUNT_WIRE_FIXTURE;
+    const a = accountFromWire(withoutSlug);
+    expect(a.slug).toBe('');
+  });
+
+  it('falls back to "free" for an unknown plan_tier (deploy-skew safe)', () => {
+    const a = accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, plan_tier: 'enterprise' });
+    expect(a.planTier).toBe('free');
+  });
+
+  it('accepts every canonical tier', () => {
+    for (const tier of ['free', 'starter', 'mid_tier', 'growth', 'custom']) {
+      const a = accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, plan_tier: tier });
+      expect(a.planTier).toBe(tier);
+    }
+  });
+
+  it('maps null caps for unlimited (custom) plans', () => {
+    const a = accountFromWire({
+      ...ACCOUNT_WIRE_FIXTURE,
+      plan_tier: 'custom',
+      sessions_limit: null,
+      sessions_remaining: null,
+      plan_caps: {
+        ...ACCOUNT_WIRE_FIXTURE.plan_caps,
+        label: 'Custom',
+        price_monthly: null,
+        session_limit: null,
+        ready_made_challenges: null,
+        custom_challenges_max: null,
+        contact_sales: true,
+        popular: false,
+      },
+    });
+    expect(a.sessionsLimit).toBeNull();
+    expect(a.sessionsRemaining).toBeNull();
+    expect(a.planCaps?.priceMonthly).toBeNull();
+    expect(a.planCaps?.sessionLimit).toBeNull();
+    expect(a.planCaps?.contactSales).toBe(true);
+  });
+
+  it('null plan_caps is preserved (legacy/unknown tier)', () => {
+    const a = accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, plan_caps: null });
+    expect(a.planCaps).toBeNull();
   });
 });
 

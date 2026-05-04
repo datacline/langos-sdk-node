@@ -110,6 +110,16 @@ export interface Session {
 }
 
 /**
+ * Canonical Langos plan tiers. Mirrors the public pricing page at
+ * https://www.langos.io/#pricing — the source of truth lives in the server's
+ * `plan-features.json`. No aliases, no synonyms; if a partner sees an unknown
+ * value here it's a deploy mismatch, not a plan tier we forgot to add.
+ *
+ * Note: `mid_tier` is the canonical key. There is no `mid` shorthand.
+ */
+export type PlanTier = 'free' | 'starter' | 'mid_tier' | 'growth' | 'custom';
+
+/**
  * Account info for the Langos company that owns the calling integration.
  * Returned by `client.account.retrieve()`.
  */
@@ -117,47 +127,104 @@ export interface Account {
   id: string;
   object: 'account';
   name: string;
-  planTier: string;
+  /**
+   * Immutable, auto-assigned URL slug for this company. Stable across the
+   * company's lifetime; safe to embed in your UI/links. Server-generated on
+   * signup — partners cannot set it.
+   */
+  slug: string;
+  /**
+   * The company's current plan tier. One of `free | starter | mid_tier |
+   * growth | custom`. Use this to gate UI on `planCaps` rather than hardcoding
+   * tier strings.
+   */
+  planTier: PlanTier;
   billingCycle: string;
   status: string;
   sessionsUsed: number;
-  /** `null` on unlimited / enterprise plans. */
+  /** `null` on unlimited plans (e.g. `custom`). */
   sessionsLimit: number | null;
-  /** `null` on unlimited / enterprise plans. */
+  /** `null` on unlimited plans (e.g. `custom`). */
   sessionsRemaining: number | null;
   trialEndsAt: string | null;
+  /**
+   * Top-level feature flags derived from the plan-features matrix and runtime
+   * configuration. Each flag answers "can this account use feature X right now?"
+   *
+   *   - `webIdeEnabled`        — true when the plan includes the web IDE.
+   *   - `replayEnabled`        — true when the plan includes session replay.
+   *   - `aiAssistanceEnabled`  — true ONLY when the plan includes AI assistance
+   *     AND an Anthropic API key is configured for the company. (Tier alone
+   *     isn't enough; AI is gated by tier but inert without a key.)
+   */
   features: AccountFeatures;
   /**
-   * What the company's plan tier *includes* per the public pricing page.
-   * Read-only — partners use this to render upgrade prompts (e.g. "your plan
-   * caps at 30 sessions/mo, upgrade for unlimited"). `null` when the company
-   * is on a legacy or unknown tier.
+   * What the company's plan tier *includes*, mirrored from the public pricing
+   * page. Read-only — partners use this to render upgrade prompts (e.g. "your
+   * plan caps at 30 sessions/mo, upgrade for unlimited"). `null` when the
+   * company is on a legacy or unknown tier.
    */
   planCaps: PlanCaps | null;
   integration: AccountIntegration;
 }
 
+/**
+ * Plan capability block, mirrored from `plan-features.json` on the server.
+ * The shape mirrors the public pricing page: render upgrade prompts from this
+ * rather than hardcoding plan limits in your UI.
+ */
 export interface PlanCaps {
   label: string;
   priceMonthly: number | null;
-  billing: string;
-  currency: string;
+  /** Billing cadence. Currently always `'monthly'`. */
+  billing: 'monthly';
+  /** Display currency. Currently always `'USD'`. */
+  currency: 'USD';
+  /** Sessions per billing period. `null` on unlimited tiers. */
   sessionLimit: number | null;
+  /** Library challenges available out of the box. `null` on unlimited tiers. */
   readyMadeChallenges: number | null;
+  /** Max custom challenges the company can author. `null` on unlimited tiers. */
   customChallengesMax: number | null;
+  /**
+   * Raw feature matrix from plan-features.json — keys like `web_ide`,
+   * `replay`, `ai_assistance`, `sso`, etc. Prefer the typed `Account.features`
+   * for the small set of flags surfaced at top level.
+   */
   features: Record<string, boolean>;
   support: string;
   popular: boolean;
   contactSales: boolean;
 }
 
+/**
+ * Top-level feature flags, derived from `plan_caps.features` plus runtime
+ * configuration (see `aiAssistanceEnabled`).
+ */
 export interface AccountFeatures {
+  /** True when `plan_caps.features.web_ide` is true. */
   webIdeEnabled: boolean;
+  /** True when `plan_caps.features.replay` is true. */
   replayEnabled: boolean;
+  /**
+   * True only when `plan_caps.features.ai_assistance` is true AND an
+   * Anthropic API key is configured for the company. Without the key, AI is
+   * gated by tier but would be inert at runtime.
+   */
   aiAssistanceEnabled: boolean;
 }
 
 export interface AccountIntegration {
+  /**
+   * Which integration path issued the calling API key.
+   *
+   * - `"customer"` — this key was minted from the Langos dashboard and used
+   *   directly via this SDK.
+   * - `"ashby"` (or another ATS slug) — Langos was wired through your ATS
+   *   partner; the customer is operating Langos inside the partner's UI.
+   *
+   * Both paths surface the same `/v1/account` data and call the same API.
+   */
   provider: string;
   apiKeyPrefix: string;
   scopes: string[];

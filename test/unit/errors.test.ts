@@ -69,3 +69,63 @@ describe('LangosAPIError.from', () => {
     expect(fromHeader.requestId).toBe('req_hdr');
   });
 });
+
+describe('LangosAPIError typed details', () => {
+  it('quotaDetails: returns structured payload on 402 quota_exceeded', () => {
+    const err = LangosAPIError.from(
+      402,
+      {
+        code: 'quota_exceeded',
+        detail: 'Account is over quota: 30/30 sessions this period',
+        sessions_used: 30,
+        sessions_limit: 30,
+        reset_at: '2026-06-01T00:00:00.000Z',
+        upgrade_url: 'https://app.langos.io/settings/billing',
+        plan_tier: 'mid_tier',
+      },
+      headers(),
+    );
+    expect(err.quotaDetails).toEqual({
+      sessions_used: 30,
+      sessions_limit: 30,
+      reset_at: '2026-06-01T00:00:00.000Z',
+      upgrade_url: 'https://app.langos.io/settings/billing',
+      plan_tier: 'mid_tier',
+    });
+    // The 402 path is not specialised — it still surfaces as the base APIError.
+    expect(err).toBeInstanceOf(LangosAPIError);
+    expect(err.status).toBe(402);
+  });
+
+  it('quotaDetails: null when status is not 402', () => {
+    const err = LangosAPIError.from(403, { code: 'quota_exceeded' }, headers());
+    expect(err.quotaDetails).toBeNull();
+  });
+
+  it('quotaDetails: null when code does not match', () => {
+    const err = LangosAPIError.from(402, { code: 'payment_required' }, headers());
+    expect(err.quotaDetails).toBeNull();
+  });
+
+  it('featureDetails: returns structured payload on 403 feature_not_available', () => {
+    const err = LangosAPIError.from(
+      403,
+      {
+        code: 'feature_not_available',
+        detail: 'replay is not included in your plan',
+        feature: 'replay',
+        upgrade_url: 'https://app.langos.io/settings/billing',
+      },
+      headers(),
+    );
+    expect(err.featureDetails).toEqual({
+      feature: 'replay',
+      upgrade_url: 'https://app.langos.io/settings/billing',
+    });
+  });
+
+  it('featureDetails: null when code does not match', () => {
+    const err = LangosAPIError.from(403, { code: 'insufficient_scope' }, headers());
+    expect(err.featureDetails).toBeNull();
+  });
+});

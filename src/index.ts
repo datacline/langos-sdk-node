@@ -14,10 +14,16 @@ export {
   LangosSignatureVerificationError,
 } from './core/errors.js';
 export type {
+  LangosErrorBody,
+  QuotaExceededDetails,
+  FeatureNotAvailableDetails,
+} from './core/errors.js';
+export type {
   Account,
   AccountFeatures,
   AccountIntegration,
   PlanCaps,
+  PlanTier,
   Assessment,
   AssessmentListParams,
   Candidate,

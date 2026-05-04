@@ -2,6 +2,35 @@
 // client extend `LangosError`. Partners should catch the most specific subclass
 // they care about and let the rest bubble.
 
+/**
+ * Structured details merged into the 402 `quota_exceeded` error body. The
+ * server emits these as top-level fields alongside the standard problem+json
+ * envelope; partners can render an upgrade prompt without parsing free-form
+ * text.
+ */
+export interface QuotaExceededDetails {
+  sessions_used: number;
+  sessions_limit: number;
+  /** ISO timestamp when the quota window resets. */
+  reset_at: string;
+  /** Absolute URL to the upgrade page; `null` if the server can't build one. */
+  upgrade_url: string | null;
+  /** The plan tier that hit the cap (e.g. `mid_tier`, `growth`). */
+  plan_tier: string;
+}
+
+/**
+ * Structured details merged into the 403 `feature_not_available` error body.
+ * Returned when an integration calls a feature its plan tier does not include
+ * (e.g. asking for replay on `starter`).
+ */
+export interface FeatureNotAvailableDetails {
+  /** The plan-features key that is gated off (e.g. `replay`, `ai_assistance`). */
+  feature: string;
+  /** Absolute URL to the upgrade page; `null` if the server can't build one. */
+  upgrade_url: string | null;
+}
+
 export interface LangosErrorBody {
   type?: string;
   title?: string;
@@ -10,6 +39,11 @@ export interface LangosErrorBody {
   code?: string;
   request_id?: string;
   errors?: Array<{ field: string; message: string; code?: string }>;
+  // Loose extras: the server merges code-specific fields (quota details,
+  // feature-gate details) at the top level of the problem+json body. Use
+  // {@link LangosAPIError.quotaDetails} / `featureDetails` to access them
+  // type-safely instead of reaching into `body` directly.
+  [extra: string]: unknown;
 }
 
 export class LangosError extends Error {
@@ -43,6 +77,40 @@ export class LangosAPIError extends LangosError {
     this.headers = headers;
     this.body = body;
     this.errors = body?.errors;
+  }
+
+  /**
+   * Typed accessor for 402 `quota_exceeded` errors. Returns the structured
+   * details payload (sessions used/limit, reset timestamp, upgrade URL, plan
+   * tier) when the error matches; otherwise `null`.
+   *
+   * Use this instead of reaching into `err.body` to render upgrade prompts.
+   */
+  get quotaDetails(): QuotaExceededDetails | null {
+    if (this.status !== 402 || this.code !== 'quota_exceeded' || !this.body) return null;
+    const b = this.body as Record<string, unknown>;
+    if (typeof b.sessions_used !== 'number' || typeof b.sessions_limit !== 'number') return null;
+    return {
+      sessions_used: b.sessions_used,
+      sessions_limit: b.sessions_limit,
+      reset_at: typeof b.reset_at === 'string' ? b.reset_at : '',
+      upgrade_url: typeof b.upgrade_url === 'string' ? b.upgrade_url : null,
+      plan_tier: typeof b.plan_tier === 'string' ? b.plan_tier : '',
+    };
+  }
+
+  /**
+   * Typed accessor for 403 `feature_not_available` errors. Returns the gated
+   * feature key and an upgrade URL; otherwise `null`.
+   */
+  get featureDetails(): FeatureNotAvailableDetails | null {
+    if (this.status !== 403 || this.code !== 'feature_not_available' || !this.body) return null;
+    const b = this.body as Record<string, unknown>;
+    if (typeof b.feature !== 'string') return null;
+    return {
+      feature: b.feature,
+      upgrade_url: typeof b.upgrade_url === 'string' ? b.upgrade_url : null,
+    };
   }
 
   static from(status: number, body: unknown, headers: Headers): LangosAPIError {

@@ -133,12 +133,29 @@ export function sessionFromWire(w: any): Session {
 
 /* ------------------------- account ------------------------- */
 
+import type { PlanTier } from '../types.js';
+
+const PLAN_TIERS: ReadonlyArray<PlanTier> = ['free', 'starter', 'mid_tier', 'growth', 'custom'];
+
+/**
+ * Normalize the wire `plan_tier` to a known {@link PlanTier}. Falls back to
+ * `'free'` if the server returns a tier the SDK doesn't recognize — this is a
+ * deploy-skew safeguard (older SDK + newer server tier) and gets logged
+ * implicitly via the unknown value never matching upgrade-prompt branches.
+ */
+function planTierFromWire(raw: unknown): PlanTier {
+  return typeof raw === 'string' && (PLAN_TIERS as ReadonlyArray<string>).includes(raw)
+    ? (raw as PlanTier)
+    : 'free';
+}
+
 export function accountFromWire(w: any): Account {
   return {
     id: String(w.id),
     object: 'account',
     name: String(w.name),
-    planTier: String(w.plan_tier),
+    slug: String(w.slug ?? ''),
+    planTier: planTierFromWire(w.plan_tier),
     billingCycle: String(w.billing_cycle),
     status: String(w.status),
     sessionsUsed: Number(w.sessions_used ?? 0),
@@ -163,8 +180,8 @@ export function accountFromWire(w: any): Account {
             w.plan_caps.price_monthly === null || w.plan_caps.price_monthly === undefined
               ? null
               : Number(w.plan_caps.price_monthly),
-          billing: String(w.plan_caps.billing ?? 'monthly'),
-          currency: String(w.plan_caps.currency ?? 'USD'),
+          billing: 'monthly',
+          currency: 'USD',
           sessionLimit:
             w.plan_caps.session_limit === null || w.plan_caps.session_limit === undefined
               ? null
