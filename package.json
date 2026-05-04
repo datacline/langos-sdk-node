@@ -1,0 +1,62 @@
+{
+  "name": "@datacline/langos-sdk-node",
+  "version": "0.2.0-alpha.1",
+  "description": "Official Node.js / TypeScript SDK for the Langos API.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "lint": "tsc --noEmit",
+    "generate": "openapi-typescript ../../codestream-app/server/docs/v1-openapi.yaml -o src/generated/paths.d.ts"
+  },
+  "keywords": [
+    "langos",
+    "ats",
+    "coding-interview",
+    "assessment",
+    "api",
+    "sdk"
+  ],
+  "author": "Datacline Limited",
+  "license": "MIT",
+  "homepage": "https://github.com/datacline/langos-sdk-node",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/datacline/langos-sdk-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/datacline/langos-sdk-node/issues"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "msw": "^2.6.0",
+    "openapi-typescript": "^7",
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^1"
+  }
+}
