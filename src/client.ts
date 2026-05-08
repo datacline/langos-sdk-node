@@ -40,6 +40,15 @@ export class Langos {
         'Langos: no fetch implementation found. Use Node 18+ or pass `fetch` via the options.',
       );
     }
+    if (options.appName !== undefined) {
+      assertHeaderSafe('appName', options.appName);
+    }
+    if (options.apiKey !== undefined) {
+      // apiKey is also reflected into a header (Authorization: Bearer …) — same
+      // CRLF-injection class applies. Belt-and-braces: even though most callers
+      // pull this from env, validate once here.
+      assertHeaderSafe('apiKey', options.apiKey);
+    }
     this.cfg = {
       apiKey: options.apiKey,
       baseUrl: (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, ''),
@@ -55,5 +64,24 @@ export class Langos {
     this.assessments = new AssessmentsResource(this.cfg);
     this.candidates = new CandidatesResource(this.cfg);
     this.sessions = new SessionsResource(this.cfg);
+  }
+}
+
+// CRLF / null-byte / C0-control characters in a partner-supplied string that
+// lands in an HTTP header enables header-injection (e.g. an attacker who can
+// control `appName` could splice in `\r\nX-Spoofed: yes`). Reject at construct
+// time with a clear error rather than relying on the underlying fetch impl,
+// which on some runtimes silently truncates or normalizes invalid headers.
+const HEADER_UNSAFE = /[\r\n\0\x00-\x1f\x7f]/;
+
+function assertHeaderSafe(field: string, value: string): void {
+  if (typeof value !== 'string') {
+    throw new TypeError(`Langos: ${field} must be a string`);
+  }
+  if (HEADER_UNSAFE.test(value)) {
+    throw new TypeError(
+      `Langos: ${field} contains control characters (\\r, \\n, \\0, or other C0). ` +
+        'These are not allowed in HTTP headers and would enable header injection.',
+    );
   }
 }

@@ -145,6 +145,12 @@ function buildHeaders(cfg: ResolvedClientConfig, req: InternalRequest): Headers 
   if (req.body !== undefined) headers.set('Content-Type', 'application/json');
   headers.set('User-Agent', buildUserAgent(cfg));
   if (cfg.telemetry !== false) {
+    // `process.platform` and `process.version` are runtime-controlled (set by
+    // Node itself), not partner-controlled, so they don't carry the same
+    // CRLF-injection risk as `cfg.appName`. We still funnel them through
+    // `JSON.stringify` defensively: stringify never emits a raw `\r` or `\n`
+    // (control chars are escaped to `\\u000d` / `\\u000a`), so the result is
+    // always safe to set as a header value.
     headers.set(
       'X-Langos-Client-Telemetry',
       JSON.stringify({
