@@ -3,6 +3,17 @@ import { LangosSignatureVerificationError } from '../core/errors.js';
 import type { WebhookEvent } from '../types.js';
 
 const DEFAULT_TOLERANCE_SECONDS = 300;
+// Minimum acceptable signing-secret length. The server mints `whsec_…` secrets
+// with at least 32 random bytes, so anything shorter is either a misconfigured
+// integration or an attacker probing for a missing-secret default. Rejecting
+// short secrets explicitly avoids the "partner forgot to set
+// LANGOS_WEBHOOK_SECRET, attacker forges events HMAC'd with empty string"
+// failure mode.
+const MIN_SECRET_LENGTH = 16;
+// Reject absurd-future timestamps (year 2106-ish, the unix-epoch overflow
+// boundary). A negative or zero `t=` in the signature header is also a tampered
+// header — real servers always emit a positive epoch second.
+const MAX_TIMESTAMP_SECONDS = 2 ** 32;
 
 /**
  * Webhook helpers. v1.0 ships verification only — outbound delivery from Langos
@@ -19,6 +30,16 @@ export const Webhooks = {
     secret: string,
     tolerance: number = DEFAULT_TOLERANCE_SECONDS,
   ): WebhookEvent<T> {
+    // Validate the signing secret BEFORE inspecting any partner-controlled
+    // input. If the partner forgot to set LANGOS_WEBHOOK_SECRET we must NOT
+    // fall through to HMAC'ing with the empty string — an attacker who knows
+    // this could forge events that pass verification.
+    if (typeof secret !== 'string' || secret.length < MIN_SECRET_LENGTH) {
+      throw new LangosSignatureVerificationError(
+        `Signing secret missing or too short (need at least ${MIN_SECRET_LENGTH} chars). ` +
+          'Set the secret returned by `client.account.rotateSigningSecret()`.',
+      );
+    }
     if (!signatureHeader) {
       throw new LangosSignatureVerificationError('Missing Langos-Signature header');
     }
@@ -63,7 +84,16 @@ function parseSignatureHeader(header: string): { timestamp: number | null; signa
     const [k, v] = part.trim().split('=');
     if (k === 't' && v) {
       const n = parseInt(v, 10);
-      if (Number.isFinite(n)) timestamp = n;
+      // Only accept a finite, positive, sane epoch second. Rejects:
+      //   - `t=abc`          → NaN
+      //   - `t=0`, `t=-1`    → non-positive (real servers never emit this)
+      //   - `t=999999999999` → past the year-2106 unix overflow boundary,
+      //                        either tampered or absurd clock drift
+      // The downstream tolerance check would also catch `t=0`, but failing
+      // fast here keeps the malformed-header error message clear.
+      if (Number.isFinite(n) && n > 0 && n < MAX_TIMESTAMP_SECONDS) {
+        timestamp = n;
+      }
     }
     if (k === 'v1' && v) signatures.push(v);
   }

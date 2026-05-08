@@ -1,0 +1,979 @@
+openapi: 3.1.0
+info:
+  title: Langos API
+  version: 1.0.0
+  description: |
+    Customer-facing API for direct integration into your own backend. This API
+    is consumed by the `@datacline/langos-sdk-node` SDK and any other customer
+    integration that prefers raw HTTP.
+
+    All endpoints require an API key issued by the Langos workspace owner via
+    the recruiter dashboard. Authenticate using:
+
+        Authorization: Bearer <api_key>
+
+    The legacy HTTP Basic format (`Authorization: Basic <base64(key:)>`) is
+    still accepted for backward compatibility with the legacy Ashby integrations
+    that pre-date this SDK.
+  contact:
+    name: Langos Platform Team
+    url: https://app.langos.io
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://app.langos.io/api/v1
+    description: Production
+  - url: http://localhost:3001/api/v1
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Account
+    description: Calling integration's account info, plan, quota, and webhook endpoint configuration.
+  - name: Assessments
+    description: Assessment templates a customer can offer to candidates.
+  - name: Challenges
+    description: |
+      Coding challenges that compose assessments. Read-only via the API —
+      authoring happens in the recruiter dashboard. Customers list available
+      challenges to pick which ones to bundle into per-job assessments.
+  - name: Candidates
+    description: Invited candidates and their assessment lifecycle.
+  - name: Sessions
+    description: Coding sessions and their results.
+  - name: Webhooks
+    description: Outbound HTTP events Langos POSTs to a customer-registered URL.
+
+paths:
+  /assessments:
+    get:
+      tags: [Assessments]
+      operationId: listAssessments
+      summary: List published assessments
+      description: |
+        Returns assessment templates available for the authenticated customer's
+        tenant. An assessment is a logical grouping of one or more coding
+        challenges that the customer can present to candidates.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of assessments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssessmentList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /assessments/{id}:
+    get:
+      tags: [Assessments]
+      operationId: retrieveAssessment
+      summary: Retrieve an assessment by id
+      parameters:
+        - $ref: '#/components/parameters/AssessmentId'
+      responses:
+        '200':
+          description: Assessment details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assessment'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /challenges:
+    get:
+      tags: [Challenges]
+      operationId: listChallenges
+      summary: List published challenges
+      description: |
+        Returns coding challenges available to the customer for bundling into
+        assessments. Filter by `language` (e.g. `python`, `javascript`, `go`).
+        Status defaults to `published`; drafts and archived challenges are
+        hidden from the API surface.
+
+        `scoring_config` is intentionally not exposed — recruiter rubric
+        weights stay private. Customers receive `passed: true/false` on the
+        session, not the underlying weights.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [published, draft, archived]
+            default: published
+        - in: query
+          name: language
+          schema:
+            type: string
+            example: python
+      responses:
+        '200':
+          description: Page of challenges.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChallengeList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /challenges/{id}:
+    get:
+      tags: [Challenges]
+      operationId: retrieveChallenge
+      summary: Retrieve a challenge by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Challenge details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Challenge'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /candidates:
+    get:
+      tags: [Candidates]
+      operationId: listCandidates
+      summary: List candidates
+      description: List candidates the customer has invited, optionally filtered by status or assessment.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/CandidateStatus'
+        - in: query
+          name: assessment_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Page of candidates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidateList'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [Candidates]
+      operationId: createCandidate
+      summary: Invite a candidate to an assessment
+      description: |
+        Creates an assessment invitation for a candidate. The response includes
+        an `invitation_url` the customer should surface to the candidate.
+
+        Use the `Idempotency-Key` header to safely retry; identical requests
+        within 24 hours return the original response.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CandidateCreate'
+      responses:
+        '201':
+          description: Candidate invited.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402': { $ref: '#/components/responses/PaymentRequired' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /candidates/{id}:
+    get:
+      tags: [Candidates]
+      operationId: retrieveCandidate
+      summary: Retrieve a candidate by id
+      parameters:
+        - $ref: '#/components/parameters/CandidateId'
+      responses:
+        '200':
+          description: Candidate details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Candidates]
+      operationId: cancelCandidate
+      summary: Cancel an invited candidate
+      description: |
+        Cancels a pending or in-progress assessment for a candidate. Idempotent:
+        cancelling an already-cancelled candidate returns the same response.
+      parameters:
+        - $ref: '#/components/parameters/CandidateId'
+      responses:
+        '200':
+          description: Candidate cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /candidates/{id}/sessions:
+    get:
+      tags: [Sessions]
+      operationId: listCandidateSessions
+      summary: List sessions for a candidate
+      description: Returns all coding sessions (attempts) for the given candidate, newest first.
+      parameters:
+        - $ref: '#/components/parameters/CandidateId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionList'
+
+  /sessions/{id}:
+    get:
+      tags: [Sessions]
+      operationId: retrieveSession
+      summary: Retrieve a session with full results
+      description: |
+        Returns a coding session bundled with its submission, score, pass/fail,
+        a clickable `report_url` for the recruiter, typed activity analytics,
+        and any reviewer feedback. This single response is rich enough for
+        customers to render a full report card without further round trips.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session bundle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /account:
+    get:
+      tags: [Account]
+      operationId: retrieveAccount
+      summary: Retrieve the account that owns this integration
+      description: |
+        Returns the Langos company that owns the calling API key, plus this
+        integration's own metadata.
+
+        Use this to:
+          * Show the recruiter the remaining session quota in your UI before
+            sending an invite.
+          * Hide options for features that aren't enabled on this customer's
+            plan (e.g. AI assistance).
+          * Verify the API key prefix the customer pasted matches what they
+            see in their Langos settings.
+
+        Requires the `account:read` scope (granted by default to all
+        integrations).
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /account/webhook-endpoint:
+    patch:
+      tags: [Account, Webhooks]
+      operationId: setWebhookEndpoint
+      summary: Set the outbound webhook URL and (optionally) rotate the signing secret
+      description: |
+        Configure where Langos should POST signed webhook events for this
+        integration, and optionally generate a fresh signing secret.
+
+        Pass `webhook_url: null` to disable outbound delivery (customer falls
+        back to polling `GET /sessions/:id`).
+
+        Pass `rotate_signing_secret: true` to overwrite the previous secret
+        with a freshly generated `whsec_…` value. The new secret is returned
+        only in the response of this call — store it. Subsequent calls
+        (including `GET /account`) never echo the secret.
+
+        Requires the `webhooks:write` scope.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointParams'
+      responses:
+        '200':
+          description: Webhook endpoint state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+
+  parameters:
+    Limit:
+      in: query
+      name: limit
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Max number of items to return.
+    Cursor:
+      in: query
+      name: cursor
+      schema:
+        type: string
+      description: Opaque pagination cursor returned by a previous list call.
+    AssessmentId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    CandidateId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      schema: { type: string, maxLength: 255 }
+      description: Optional client-supplied key for safe retries. The SDK auto-generates this.
+
+  schemas:
+    Assessment:
+      type: object
+      required: [id, name, object, created_at, challenge_count]
+      properties:
+        id: { type: string, format: uuid }
+        object: { type: string, enum: [assessment] }
+        name: { type: string, example: "Backend Engineer Screen" }
+        description: { type: string, nullable: true }
+        challenge_count:
+          type: integer
+          description: Number of underlying challenges in this assessment's pool.
+          example: 3
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AssessmentList:
+      $ref: '#/components/schemas/Page'
+
+    Challenge:
+      type: object
+      required: [id, object, title, language, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        object: { type: string, enum: [challenge] }
+        title: { type: string, example: "Verify Challenge" }
+        description: { type: string, nullable: true }
+        language: { type: string, example: "python" }
+        difficulty:
+          type: string
+          nullable: true
+          enum: [easy, medium, hard]
+        category:
+          type: string
+          nullable: true
+          example: "Arrays & Hashing"
+        time_limit_minutes:
+          type: integer
+          nullable: true
+          example: 60
+        status:
+          type: string
+          enum: [published, draft, archived]
+        created_at: { type: string, format: date-time }
+      description: |
+        Coding challenge metadata. `scoring_config` (rubric weights) is
+        intentionally not exposed — keeping it private prevents candidates
+        from gaming scores.
+
+    ChallengeList:
+      $ref: '#/components/schemas/Page'
+
+    CandidateStatus:
+      type: string
+      enum: [invited, started, completed, cancelled, error]
+
+    CandidateCreate:
+      type: object
+      required: [email, assessment_id]
+      properties:
+        email: { type: string, format: email }
+        name: { type: string, nullable: true }
+        assessment_id:
+          type: string
+          format: uuid
+          description: ID of the assessment template to invite the candidate to.
+        external_id:
+          type: string
+          maxLength: 255
+          nullable: true
+          description: Optional customer-side identifier (your DB row id, e.g. application id) — round-tripped on responses and webhook events.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the invitation should expire. Null for no expiration.
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    Candidate:
+      type: object
+      required: [id, object, email, assessment_id, status, invitation_url, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        object: { type: string, enum: [candidate] }
+        email: { type: string, format: email }
+        name: { type: string, nullable: true }
+        assessment_id: { type: string, format: uuid }
+        external_id: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/CandidateStatus' }
+        invitation_url:
+          type: string
+          format: uri
+          description: URL the candidate visits to start the assessment.
+        invited_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        cancelled_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        latest_session_id: { type: string, format: uuid, nullable: true }
+        score: { type: number, nullable: true }
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CandidateList:
+      $ref: '#/components/schemas/Page'
+
+    SessionStatus:
+      type: string
+      enum: [pending, provisioning, active, submitted, completed, failed, expired]
+
+    Session:
+      type: object
+      required: [id, object, candidate_id, assessment_id, status, attempt, analytics, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        object: { type: string, enum: [session] }
+        candidate_id: { type: string, format: uuid }
+        assessment_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/SessionStatus' }
+        attempt:
+          type: integer
+          minimum: 1
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        duration_seconds: { type: integer, nullable: true }
+        score:
+          type: number
+          nullable: true
+          description: Overall numeric score 0–100. Null until session is completed and scored.
+        passed:
+          type: boolean
+          nullable: true
+          description: |
+            `true` if `score >= company_settings.pass_threshold`, `false` if below.
+            Always `null` when either the score or the company's pass threshold
+            is unset — we never guess.
+        report_url:
+          type: string
+          format: uri
+          nullable: true
+          description: |
+            Customer-readable HTML report URL for the recruiter. Click-through
+            opens a Langos-hosted summary page (no Langos login required).
+            Null while the session has no calculated score yet.
+        submission:
+          type: object
+          nullable: true
+          properties:
+            language: { type: string, nullable: true }
+            final_code: { type: string, nullable: true }
+            diff: { type: string, nullable: true }
+            commit_sha: { type: string, nullable: true }
+            preview_url:
+              type: string
+              format: uri
+              nullable: true
+              description: URL to the read-only submission preview in the recruiter dashboard.
+        analytics:
+          $ref: '#/components/schemas/SessionAnalytics'
+        insights:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: |
+            Forward-compat blob for any extra metrics surfaced by the scoring
+            pipeline. Typed counters/seconds live in `analytics`; new fields
+            land here without breaking the schema.
+        feedback:
+          type: object
+          nullable: true
+          properties:
+            notes: { type: string, nullable: true }
+            problem_solving_score: { type: number, nullable: true }
+            code_quality_score: { type: number, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    SessionAnalytics:
+      type: object
+      required:
+        - editor_event_count
+        - run_event_count
+        - test_event_count
+        - ai_event_count
+        - paste_event_count
+        - active_seconds
+        - idle_seconds
+        - coding_seconds
+      description: |
+        Typed activity counters surfaced from the analytics pipeline. All counts
+        are non-negative integers; default `0` when no events have been recorded
+        yet. Lets customer UIs render "candidate spent X minutes coding, ran tests
+        Y times" without parsing the opaque `insights` blob.
+      properties:
+        editor_event_count: { type: integer, minimum: 0 }
+        run_event_count: { type: integer, minimum: 0 }
+        test_event_count: { type: integer, minimum: 0 }
+        ai_event_count: { type: integer, minimum: 0 }
+        paste_event_count: { type: integer, minimum: 0 }
+        active_seconds: { type: integer, minimum: 0 }
+        idle_seconds: { type: integer, minimum: 0 }
+        coding_seconds: { type: integer, minimum: 0 }
+
+    Account:
+      type: object
+      required: [id, object, name, slug, plan_tier, sessions_used, features, integration]
+      properties:
+        id: { type: string, format: uuid }
+        object: { type: string, enum: [account] }
+        name: { type: string, example: "Acme Inc" }
+        slug:
+          type: string
+          example: "acme-inc"
+          description: |
+            Immutable, auto-assigned tenant slug. Stable across plan changes and
+            renames. Use this when you need a URL-safe / log-safe identifier for
+            the company instead of the UUID `id`.
+        plan_tier:
+          type: string
+          enum: [free, starter, mid_tier, growth, custom]
+          example: "growth"
+          description: |
+            Canonical plan tier. Exactly one of the five values above — no
+            aliases. Mismatched values must be fixed at the source (Stripe
+            metadata, DB) rather than silently mapped.
+        billing_cycle: { type: string, example: "monthly" }
+        status: { type: string, example: "active" }
+        sessions_used: { type: integer, minimum: 0, example: 47 }
+        sessions_limit:
+          type: integer
+          nullable: true
+          description: Per-period session quota. `null` for unlimited / enterprise plans.
+          example: 100
+        sessions_remaining:
+          type: integer
+          nullable: true
+          description: Convenience field. `null` when `sessions_limit` is null.
+          example: 53
+        trial_ends_at: { type: string, format: date-time, nullable: true }
+        features: { $ref: '#/components/schemas/AccountFeatures' }
+        plan_caps:
+          allOf:
+            - $ref: '#/components/schemas/PlanCaps'
+          nullable: true
+          description: |
+            What the company's plan tier *includes* per the public pricing page
+            (https://www.langos.io/#pricing). Read-only — customers use this to
+            render upgrade prompts. `null` when the company is on a legacy or
+            unknown tier.
+        integration: { $ref: '#/components/schemas/AccountIntegration' }
+
+    AccountFeatures:
+      type: object
+      required: [web_ide_enabled, replay_enabled, ai_assistance_enabled]
+      description: |
+        Runtime feature state for this account. Values reflect what is *actually*
+        usable right now, which can be stricter than the tier matrix in
+        `plan_caps.features`:
+
+          * `web_ide_enabled`        — derived from the tier matrix (`web_ide`).
+          * `replay_enabled`         — derived from the tier matrix (`replay`).
+          * `ai_assistance_enabled`  — tier matrix (`ai_assistance`) AND a
+                                       configured Anthropic API key on the
+                                       company. Without the key, AI is gated
+                                       by tier but inert at runtime, so this
+                                       flag is `false`.
+
+        Use these for runtime UI gating; use `plan_caps.features` for upgrade
+        prompts ("upgrade to unlock X").
+      properties:
+        web_ide_enabled: { type: boolean }
+        replay_enabled: { type: boolean }
+        ai_assistance_enabled: { type: boolean }
+
+    PlanCaps:
+      type: object
+      required: [label, billing, currency, features, support, popular, contact_sales]
+      description: |
+        Snapshot of what a plan tier includes. Sourced from the published pricing
+        config (`config/plan-features.json`, mirrored from
+        https://www.langos.io/#pricing). `null` values for limits indicate
+        "unlimited" (Custom tier). The whole `plan_caps` object is `null` when
+        the company's `plan_tier` doesn't match a known canonical tier.
+      properties:
+        label: { type: string, example: "Mid-tier" }
+        price_monthly:
+          type: integer
+          nullable: true
+          example: 190
+          description: |
+            Monthly list price in `currency`. `null` for the Custom tier
+            (contact-sales pricing).
+        billing:
+          type: string
+          enum: [monthly]
+          example: "monthly"
+        currency:
+          type: string
+          enum: [USD]
+          example: "USD"
+        session_limit:
+          type: integer
+          nullable: true
+          example: 10
+          description: Per-period session quota for the tier. `null` means unlimited (Custom).
+        ready_made_challenges: { type: integer, nullable: true, example: 5 }
+        custom_challenges_max: { type: integer, nullable: true, example: 5 }
+        features:
+          type: object
+          additionalProperties: { type: boolean }
+          description: |
+            Per-feature boolean map. The 15 canonical keys (per
+            `config/plan-features.json`) are:
+            `session_recording`, `session_playback`, `override_patterns`,
+            `vibe_score`, `ai_assistance`, `replay`, `web_ide`, `custom_docker`,
+            `advanced_analytics`, `prompt_quality_scoring`, `rbac`,
+            `dedicated_onboarding`, `sso`, `private_deployment`, `live_mode`.
+            All keys are present on every canonical tier; value is a strict
+            boolean.
+        support: { type: string, example: "priority_email" }
+        popular: { type: boolean, default: false }
+        contact_sales: { type: boolean, default: false }
+
+    AccountIntegration:
+      type: object
+      required: [provider, api_key_prefix, scopes]
+      properties:
+        provider: { type: string, example: "customer" }
+        api_key_prefix:
+          type: string
+          example: "langos_l"
+          description: First 8 chars of the API key — used to render "connected as `langos_l…`" in customer UIs.
+        scopes:
+          type: array
+          items: { type: string }
+          example: ["assessments:read", "candidates:write", "sessions:read", "account:read", "webhooks:write"]
+        rate_limit_per_minute: { type: integer, nullable: true }
+        webhook_url:
+          type: string
+          format: uri
+          nullable: true
+
+    WebhookEndpointParams:
+      type: object
+      properties:
+        webhook_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Absolute http(s) URL, or `null` to disable outbound delivery.
+        rotate_signing_secret:
+          type: boolean
+          description: |
+            Generate a fresh signing secret. The previous secret is overwritten
+            and cannot be recovered — store the response value.
+
+    WebhookEndpoint:
+      type: object
+      required: [object]
+      properties:
+        object: { type: string, enum: [webhook_endpoint] }
+        webhook_url: { type: string, format: uri, nullable: true }
+        signing_secret:
+          type: string
+          nullable: true
+          description: |
+            The `whsec_…` signing secret. Returned only in the response to a
+            `rotate_signing_secret: true` call. Subsequent reads return `null`.
+
+    SessionList:
+      $ref: '#/components/schemas/Page'
+
+    Page:
+      type: object
+      required: [object, data, has_more, next_cursor]
+      properties:
+        object: { type: string, enum: [list] }
+        data:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/Assessment'
+              - $ref: '#/components/schemas/Candidate'
+              - $ref: '#/components/schemas/Session'
+        has_more: { type: boolean }
+        next_cursor:
+          type: string
+          nullable: true
+
+    # RFC 7807 problem+json-shaped error response.
+    Error:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI identifying the error class.
+          example: "https://api.langos.io/errors/not-found"
+        title: { type: string, example: "Not Found" }
+        status: { type: integer, example: 404 }
+        detail:
+          type: string
+          description: Human-readable explanation.
+        code:
+          type: string
+          description: Machine-readable error code (e.g. `assessment_not_found`).
+        request_id:
+          type: string
+          description: Server-issued correlation id; include when reporting issues.
+        errors:
+          type: array
+          description: Field-level errors (only set on 400/422).
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+              code: { type: string }
+
+    # Webhook event POSTed to the customer's `webhook_url` when it is set.
+    WebhookEvent:
+      type: object
+      required: [id, type, created, api_version, data]
+      description: |
+        Wire format of the JSON body Langos POSTs to a customer's registered
+        `webhook_url`. Authenticated via the `Langos-Signature` header
+        (HMAC-SHA256 over `<unix_ts>.<raw_body>` using the integration's
+        signing secret); verify with `Langos.webhooks.constructEvent` from
+        the SDK. On non-2xx (or 408/425/429/5xx), Langos retries 2 more
+        times with 1s and 4s backoff (~5 seconds total cycle). After the
+        third failure, the delivery is recorded as failed and not retried.
+      properties:
+        id:
+          type: string
+          example: "evt_8f2a1c1f-9b18-4f83-8c0d-3c8c2e8b8ef1"
+          description: Public event id, prefixed `evt_`.
+        type:
+          type: string
+          enum: [session.submitted, session.completed, candidate.cancelled]
+          description: |
+            * `session.submitted` — fires immediately when the candidate clicks
+              Submit (or auto-submit on deadline). `score` and `report_url`
+              are `null` here. Use this to flip the applicant's stage to
+              "review pending" instantly.
+
+            * `session.completed` — fires once the score has been calculated
+              (typically a few seconds later; reports may be batched). Has
+              full `score`, `passed`, `report_url`. Same `data` shape as
+              `session.submitted`, just enriched.
+
+            * `candidate.cancelled` — fires when an invitation is cancelled
+              via `DELETE /v1/candidates/:id` or by an admin in the Langos
+              dashboard.
+
+            Subscribe to whichever events your integration cares about — they
+            are independent.
+        created:
+          type: string
+          format: date-time
+        api_version:
+          type: string
+          example: "2026-05-04"
+        data:
+          type: object
+          additionalProperties: true
+          description: |
+            Payload shape depends on `type`. For `session.completed`, this is
+            the same shape as `GET /sessions/:id` — typed in the SDK as
+            `Session`.
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: API key lacks the required scope, or integration is disabled.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found, or it does not belong to the authenticated tenant.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Conflict with current state (e.g. candidate already invited to this assessment).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnprocessableEntity:
+      description: Request validated but business rules rejected it.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PaymentRequired:
+      description: |
+        The account has exhausted its session quota. The error body includes
+        `sessions_used`, `sessions_limit`, `reset_at`, and an `upgrade_url`
+        the customer can render to its admin. `code` is always
+        `quota_exceeded` for this response.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - type: object
+                required: [code, sessions_used, sessions_limit, reset_at]
+                properties:
+                  code:
+                    type: string
+                    enum: [quota_exceeded]
+                  sessions_used: { type: integer }
+                  sessions_limit: { type: integer }
+                  reset_at: { type: string, format: date-time }
+                  upgrade_url: { type: string, format: uri, nullable: true }
+                  plan_tier:
+                    type: string
+                    enum: [free, starter, mid_tier, growth, custom]
+    FeatureNotAvailable:
+      description: |
+        The calling integration's plan tier does not include the requested
+        feature. The error body includes the feature key and an `upgrade_url`
+        the customer can render to its admin. `code` is always
+        `feature_not_available` for this response.
+
+        Not currently emitted by any `/v1/*` endpoint — the customer-direct
+        API surface is plan-agnostic apart from the per-period session quota
+        (see 402). Reserved for future tier-gated `/v1/*` endpoints (e.g.
+        analytics, live participants).
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Error'
+              - type: object
+                required: [code, feature]
+                properties:
+                  code:
+                    type: string
+                    enum: [feature_not_available]
+                  feature:
+                    type: string
+                    description: The feature key from `plan_caps.features` that is gated.
+                    example: "advanced_analytics"
+                  upgrade_url: { type: string, format: uri, nullable: true }
+    RateLimited:
+      description: Per-integration rate limit exceeded. Includes `Retry-After` header.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds to wait before retrying.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServerError:
+      description: Internal error.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }

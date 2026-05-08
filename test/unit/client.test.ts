@@ -126,6 +126,53 @@ describe('Langos client', () => {
     expect(postBody).toMatchObject({ assessment_id: 'asm_1', external_id: 'ghx-9' });
   });
 
+  // Blocker 3: CRLF / control-character injection in partner-supplied appName
+  // would let an attacker who controls that string splice extra headers into
+  // every outbound request (e.g. `\r\nX-Spoofed: yes`). Reject at construct
+  // time with a typed error.
+  it('rejects appName containing CRLF (header injection)', () => {
+    expect(
+      () =>
+        new Langos({
+          apiKey: 'sk_test',
+          baseUrl: BASE,
+          appName: 'myapp\r\nX-Injected: yes',
+        }),
+    ).toThrow(TypeError);
+  });
+
+  it('rejects appName containing a bare \\n', () => {
+    expect(
+      () =>
+        new Langos({
+          apiKey: 'sk_test',
+          baseUrl: BASE,
+          appName: 'myapp\nX-Injected: yes',
+        }),
+    ).toThrow(TypeError);
+  });
+
+  it('rejects appName containing a NUL byte', () => {
+    expect(
+      () =>
+        new Langos({
+          apiKey: 'sk_test',
+          baseUrl: BASE,
+          appName: 'myapp\0evil',
+        }),
+    ).toThrow(TypeError);
+  });
+
+  it('rejects apiKey containing CRLF (header injection on Authorization)', () => {
+    expect(
+      () =>
+        new Langos({
+          apiKey: 'sk_test\r\nX-Spoofed: yes',
+          baseUrl: BASE,
+        }),
+    ).toThrow(TypeError);
+  });
+
   it('retries 503 and returns success on 3rd attempt', async () => {
     const client = new Langos({ apiKey: 'sk_test', baseUrl: BASE, telemetry: false, maxRetries: 3 });
     // Use makeRequest indirectly via a custom path — exercise the retry path through assessments.retrieve

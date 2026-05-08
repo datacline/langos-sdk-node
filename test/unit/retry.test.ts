@@ -5,10 +5,12 @@ describe('shouldRetry', () => {
   it('retries network errors', () => {
     expect(shouldRetry(null, true)).toBe(true);
   });
-  it('retries 408, 409, 429', () => {
+  it('retries 408 and 429', () => {
     expect(shouldRetry(408, false)).toBe(true);
-    expect(shouldRetry(409, false)).toBe(true);
     expect(shouldRetry(429, false)).toBe(true);
+  });
+  it('does NOT retry 409 Conflict (non-idempotent — duplicate email, version conflict)', () => {
+    expect(shouldRetry(409, false)).toBe(false);
   });
   it('retries 5xx except 501', () => {
     expect(shouldRetry(500, false)).toBe(true);
@@ -22,6 +24,7 @@ describe('shouldRetry', () => {
     expect(shouldRetry(401, false)).toBe(false);
     expect(shouldRetry(403, false)).toBe(false);
     expect(shouldRetry(404, false)).toBe(false);
+    expect(shouldRetry(409, false)).toBe(false);
     expect(shouldRetry(422, false)).toBe(false);
   });
   it('does not retry 2xx/3xx', () => {

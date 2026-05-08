@@ -187,4 +187,4 @@ await client.assessments.list({}, { timeout: 60_000, maxRetries: 5, signal: ac.s
 
 ## License
 
-UNLICENSED — internal SDK.
+MIT — see [LICENSE](./LICENSE)

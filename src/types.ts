@@ -319,17 +319,43 @@ export interface Page<T> extends PageMeta {
 
 export type AsyncIterablePage<T> = AsyncIterable<T> & Page<T>;
 
-// Webhook event types — outbound delivery is roadmap; verification helper ships
-// in v1.0 so partners can wire their handlers ahead of GA.
+// Webhook event types — verification helper ships in v1.0 so partners can wire
+// handlers ahead of GA. The canonical list is the server-side publishers in
+// `services/customer/webhookPublisher.js` + `sessionLifecyclePublisher.js`:
+// `session.submitted`, `session.completed`, `candidate.cancelled`. Adding an
+// event here without a matching server publisher is a contract drift.
 export type WebhookEventType =
   | 'session.submitted'
   | 'session.completed'
   | 'candidate.cancelled';
 
+/**
+ * Discriminated union of webhook event payloads. Each `type` narrows `data` to
+ * the corresponding shape so partners can `switch (event.type)` and let the
+ * compiler enforce exhaustive handling. When the server adds new event types,
+ * surface them here in lockstep.
+ */
+export type Event =
+  | SessionSubmittedEvent
+  | SessionCompletedEvent
+  | CandidateCancelledEvent;
+
+interface BaseEvent<TType extends WebhookEventType, TData> {
+  id: string;
+  object: 'event';
+  type: TType;
+  created: string;
+  data: TData;
+}
+
+export type SessionSubmittedEvent = BaseEvent<'session.submitted', Session>;
+export type SessionCompletedEvent = BaseEvent<'session.completed', Session>;
+export type CandidateCancelledEvent = BaseEvent<'candidate.cancelled', Candidate>;
+
 export interface WebhookEvent<T = unknown> {
   id: string;
   object: 'event';
   type: WebhookEventType;
-  createdAt: string;
+  created: string;
   data: T;
 }

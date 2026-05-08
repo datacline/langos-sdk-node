@@ -6,7 +6,12 @@ const MAX_MS = 8_000;
 export function shouldRetry(status: number | null, isNetworkError: boolean): boolean {
   if (isNetworkError) return true;
   if (status === null) return false;
-  if (status === 408 || status === 409 || status === 429) return true;
+  // 409 Conflict is intentionally NOT retried. It signals a non-idempotent
+  // failure mode (duplicate email, version conflict, race against a parallel
+  // mutation) where retrying just burns the partner's rate-limit budget and
+  // amplifies the conflict. Partners should surface 409 to their caller and
+  // resolve the conflict explicitly.
+  if (status === 408 || status === 429) return true;
   if (status >= 500 && status !== 501) return true;
   return false;
 }

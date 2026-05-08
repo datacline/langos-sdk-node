@@ -20,6 +20,26 @@ pnpm build         # tsup -> dist/{esm,cjs,types}
 
 See the **For SDK contributors** section in [CLAUDE.md](./CLAUDE.md) for the full layout, conventions, and tasks (adding a resource, regenerating docs, etc.).
 
+### Regenerating types from OpenAPI
+
+The OpenAPI spec (`openapi/v1-openapi.yaml`) is the source of truth for the API surface. TypeScript types are generated from this spec at build time, but are committed to git (`src/generated/paths.d.ts`) to keep the repo self-contained.
+
+**To re-vendor the spec when the server API changes:**
+
+1. Ensure you have a sibling checkout of `langos-ide` at `../langos-ide` (typical layout: `~/go/src/github.com/datacline/{langos-ide,langos-sdk-node}`)
+2. Run the vendor script:
+   ```bash
+   pnpm run vendor:openapi
+   ```
+3. Regenerate the types:
+   ```bash
+   pnpm run generate
+   ```
+4. Verify the changes: `git diff openapi/` and `git diff src/generated/paths.d.ts`
+5. Commit both files in your PR — **committed types are the source of truth for this repo**. CI does not regenerate them.
+
+**Note:** The `vendor:openapi` script copies from a sibling `langos-ide` checkout. If you're not on a machine with that layout, you can manually copy `/opt/langos/codestream-app/server/docs/v1-openapi.yaml` (or from the monorepo) to `openapi/v1-openapi.yaml`.
+
 ## Tests are required
 
 Every PR with a code change needs:
