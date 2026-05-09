@@ -68,8 +68,23 @@ jobs:
             console.log('Tarball OK. Files:', files);
           "
 
+      - name: Determine npm dist-tag from version
+        id: dist_tag
+        run: |
+          VERSION=$(node -e "console.log(require('./package.json').version)")
+          # Detect prerelease (anything with a hyphen: 1.0.0-alpha.1, 1.0.0-beta.2, ...)
+          if [[ "$VERSION" == *-* ]]; then
+            # Use the prerelease label as the dist-tag (alpha/beta/rc/next)
+            TAG=$(echo "$VERSION" | sed -E 's/.*-([a-zA-Z]+)\..*/\1/')
+            [ -z "$TAG" ] && TAG=next
+          else
+            TAG=latest
+          fi
+          echo "Resolved dist-tag: $TAG (from version $VERSION)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag "${{ steps.dist_tag.outputs.tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
