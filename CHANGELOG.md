@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests
+- **`LangosTimeoutError` path**: four tests covering configured timeout, `timeoutMs` value, message content, and per-call `RequestOptions.timeout` override
+- **`LangosConnectionError` path**: four tests covering DNS/refused errors, `.cause` propagation, message content, and retry exhaustion (3 total fetch calls on `maxRetries: 2`)
+- **`AbortSignal` propagation**: three tests — pre-aborted signal, mid-flight abort, no-retry when signal fires — documenting current raw-throw behaviour (see real bug below)
+- **Idempotency-Key reuse across retries**: three tests verifying the same auto-generated UUID is sent on every POST attempt, user-supplied key is preserved, and independent calls get distinct keys
+- **Retry-After parsing**: eight tests — numeric (small values, cap at 32 s), HTTP-date (falls back to exponential), negative, NaN, missing, and two integration tests (numeric Retry-After: 1 + HTTP-date fallback)
+
 ### Added
 - **`client.challenges` resource.** `list({status, language, limit, cursor})` and `retrieve(id)` for the read-only `/v1/challenges` and `/v1/challenges/:id` endpoints. Lets partners discover available coding challenges in the customer's library before assigning them to candidates.
 - **`Challenge`, `ChallengeListParams`, `ChallengeStatus` types.** Re-exported from the package root.
