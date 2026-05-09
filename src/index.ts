@@ -12,6 +12,7 @@ export {
   LangosConnectionError,
   LangosTimeoutError,
   LangosSignatureVerificationError,
+  LangosWebhookPayloadError,
 } from './core/errors.js';
 export type {
   LangosErrorBody,

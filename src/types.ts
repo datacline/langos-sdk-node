@@ -317,6 +317,14 @@ export interface LangosOptions {
   baseUrl?: string;
   timeout?: number;
   maxRetries?: number;
+  /**
+   * Upper bound on how long the SDK will wait when honoring a `Retry-After`
+   * header (in milliseconds). Defaults to 300_000 (5 minutes). Server values
+   * larger than this fall back to exponential backoff with jitter rather than
+   * blocking the request for the requested duration. Set lower if your
+   * integration prefers fast-failing over patient retries.
+   */
+  maxRetryAfterMs?: number;
   fetch?: typeof fetch;
   logger?: Logger;
   /** Free-form identifier appended to the User-Agent (e.g. "GreenhouseConnector/2.1.0"). */
