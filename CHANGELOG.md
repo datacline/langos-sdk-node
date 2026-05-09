@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Retry-After cap raised from 32s to 5 minutes** and made configurable via the new `maxRetryAfterMs` client option. The previous cap silently truncated realistic rate-limit windows (60–300s), defeating the header. Server-supplied values that are negative, NaN, or exceed the cap now fall back to exponential backoff (rather than silently honoring an attacker-controlled "sleep for 3 years" value).
 - **`Webhooks.constructEvent` no longer conflates malformed-JSON payloads with signature failure.** Bodies that pass HMAC verification but fail `JSON.parse` now throw the new `LangosWebhookPayloadError` instead of `LangosSignatureVerificationError` — the two have different operational responses (file an upstream ticket vs rotate the secret).
 
+### Tests
+- **`LangosTimeoutError` path**: four tests covering configured timeout, `timeoutMs` value, message content, and per-call `RequestOptions.timeout` override
+- **`LangosConnectionError` path**: four tests covering DNS/refused errors, `.cause` propagation, message content, and retry exhaustion (3 total fetch calls on `maxRetries: 2`)
+- **`AbortSignal` propagation**: three tests — pre-aborted signal, mid-flight abort, no-retry when signal fires — documenting current raw-throw behaviour (see real bug fix below)
+- **Idempotency-Key reuse across retries**: three tests verifying the same auto-generated UUID is sent on every POST attempt, user-supplied key is preserved, and independent calls get distinct keys
+- **Retry-After parsing**: eight tests — numeric (small values, capped per `maxRetryAfterMs`), HTTP-date (falls back to exponential), negative, NaN, missing, and two integration tests
+
 ### Added
 - **`LangosWebhookPayloadError`.** New error class for webhook payloads that pass signature verification but cannot be parsed as JSON. Re-exported from the package root.
 - **`maxRetryAfterMs` client option.** Configurable upper bound (default `300_000`) on how long the SDK will wait when honoring a `Retry-After` header.
