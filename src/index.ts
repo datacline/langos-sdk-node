@@ -23,6 +23,8 @@ export type {
   Account,
   AccountFeatures,
   AccountIntegration,
+  AccountStatus,
+  BillingCycle,
   PlanCaps,
   PlanTier,
   Assessment,

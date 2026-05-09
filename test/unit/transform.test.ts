@@ -6,6 +6,7 @@ import {
   candidateFromWire,
   candidateCreateToWire,
   sessionFromWire,
+  webhookEndpointFromWire,
 } from '../../src/core/transform.js';
 
 /**
@@ -116,6 +117,32 @@ describe('transform: challenge', () => {
   });
 });
 
+describe('transform: assessment forward-compat', () => {
+  it('coerces missing challenge_count to 0', () => {
+    const a = assessmentFromWire({
+      id: 'asm_2',
+      name: 'No counter',
+      created_at: '2026-05-03T00:00:00Z',
+      updated_at: '2026-05-03T00:00:00Z',
+    });
+    expect(a.challengeCount).toBe(0);
+    expect(a.description).toBeNull();
+  });
+});
+
+describe('transform: challenge forward-compat', () => {
+  it('falls back to "draft" for an unknown status (deploy-skew safe)', () => {
+    const c = challengeFromWire({
+      id: 'ch_3',
+      title: 'Future challenge',
+      language: 'rust',
+      status: 'in_review_by_AI',
+      created_at: '2026-05-03T00:00:00Z',
+    });
+    expect(c.status).toBe('draft');
+  });
+});
+
 describe('transform: candidate', () => {
   it('preserves metadata blob untouched', () => {
     const meta = { greenhouse_app_id: 'abc', tags: ['urgent', 'follow-up'] };
@@ -163,6 +190,58 @@ describe('transform: candidate', () => {
     expect(w.name).toBeNull();
     expect(w.external_id).toBeNull();
     expect(w.metadata).toBeNull();
+  });
+
+  it('coerces missing optional fields to null', () => {
+    const c = candidateFromWire({
+      id: 'cand_2',
+      email: 'b@b.com',
+      assessment_id: 'asm_1',
+      status: 'invited',
+      created_at: '2026-05-03T00:00:00Z',
+      updated_at: '2026-05-03T00:00:00Z',
+    });
+    expect(c.name).toBeNull();
+    expect(c.externalId).toBeNull();
+    expect(c.invitationUrl).toBeNull();
+    expect(c.score).toBeNull();
+    expect(c.metadata).toBeNull();
+    expect(c.latestSessionId).toBeNull();
+  });
+
+  it('forward-compat: unknown status falls back to "error" without throwing', () => {
+    expect(() =>
+      candidateFromWire({
+        id: 'cand_3',
+        email: 'c@b.com',
+        assessment_id: 'asm_1',
+        status: 'rehydrating',
+        created_at: '2026-05-03T00:00:00Z',
+        updated_at: '2026-05-03T00:00:00Z',
+      }),
+    ).not.toThrow();
+    const c = candidateFromWire({
+      id: 'cand_3',
+      email: 'c@b.com',
+      assessment_id: 'asm_1',
+      status: 'rehydrating',
+      created_at: '2026-05-03T00:00:00Z',
+      updated_at: '2026-05-03T00:00:00Z',
+    });
+    expect(c.status).toBe('error');
+  });
+
+  it('coerces numeric-string score to number (Postgres NUMERIC drivers)', () => {
+    const c = candidateFromWire({
+      id: 'cand_4',
+      email: 'd@b.com',
+      assessment_id: 'asm_1',
+      status: 'completed',
+      score: '92.5',
+      created_at: '2026-05-03T00:00:00Z',
+      updated_at: '2026-05-03T00:00:00Z',
+    });
+    expect(c.score).toBe(92.5);
   });
 });
 
@@ -236,6 +315,56 @@ describe('transform: account', () => {
     const a = accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, plan_caps: null });
     expect(a.planCaps).toBeNull();
   });
+
+  describe('billingCycle (narrowed enum)', () => {
+    it('preserves the canonical "monthly" / "yearly" values', () => {
+      expect(
+        accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, billing_cycle: 'monthly' }).billingCycle,
+      ).toBe('monthly');
+      expect(
+        accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, billing_cycle: 'yearly' }).billingCycle,
+      ).toBe('yearly');
+    });
+
+    it('returns null when the server omits or nulls the field (free tier / no Stripe sub)', () => {
+      expect(
+        accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, billing_cycle: null }).billingCycle,
+      ).toBeNull();
+      const { billing_cycle: _omitted, ...withoutCycle } = ACCOUNT_WIRE_FIXTURE;
+      expect(accountFromWire(withoutCycle).billingCycle).toBeNull();
+    });
+
+    it('forward-compat: unknown future cycle (e.g. "quarterly") falls back to null without throwing', () => {
+      expect(() =>
+        accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, billing_cycle: 'quarterly' }),
+      ).not.toThrow();
+      expect(
+        accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, billing_cycle: 'quarterly' }).billingCycle,
+      ).toBeNull();
+    });
+  });
+
+  describe('status (narrowed enum)', () => {
+    it.each(['trialing', 'active', 'past_due', 'canceled', 'pending'] as const)(
+      'preserves the canonical %s value',
+      raw => {
+        expect(accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, status: raw }).status).toBe(raw);
+      },
+    );
+
+    it('forward-compat: unknown status falls back to "active" rather than throwing', () => {
+      expect(() =>
+        accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, status: 'cosmic_ray_state' }),
+      ).not.toThrow();
+      expect(
+        accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, status: 'cosmic_ray_state' }).status,
+      ).toBe('active');
+    });
+
+    it('null status falls back to "active"', () => {
+      expect(accountFromWire({ ...ACCOUNT_WIRE_FIXTURE, status: null }).status).toBe('active');
+    });
+  });
 });
 
 describe('transform: session', () => {
@@ -254,6 +383,50 @@ describe('transform: session', () => {
     expect(s.submission).toBeNull();
     expect(s.feedback).toBeNull();
     expect(s.passed).toBeNull();
+  });
+
+  it('forward-compat: unknown status falls back to "pending" without throwing', () => {
+    expect(() =>
+      sessionFromWire({
+        id: 'sess_2',
+        candidate_id: 'cand_1',
+        assessment_id: 'asm_1',
+        status: 'mirror_universe',
+        created_at: '2026-05-03T00:00:00Z',
+        updated_at: '2026-05-03T00:00:00Z',
+      }),
+    ).not.toThrow();
+    const s = sessionFromWire({
+      id: 'sess_2',
+      candidate_id: 'cand_1',
+      assessment_id: 'asm_1',
+      status: 'mirror_universe',
+      created_at: '2026-05-03T00:00:00Z',
+      updated_at: '2026-05-03T00:00:00Z',
+    });
+    expect(s.status).toBe('pending');
+  });
+
+  it('insights with all known fields narrow to number | null (no extras leak)', () => {
+    const s = sessionFromWire({
+      id: 'sess_3',
+      candidate_id: 'cand_1',
+      assessment_id: 'asm_1',
+      status: 'completed',
+      insights: {
+        ai_usage_percent: 42,
+        test_pass_rate: 0.8,
+        code_quality: { lint_warnings: 3 },
+      },
+      created_at: '2026-05-03T00:00:00Z',
+      updated_at: '2026-05-03T00:00:00Z',
+    });
+    expect(s.insights).not.toBeNull();
+    expect(s.insights?.aiUsagePercent).toBe(42);
+    expect(s.insights?.testPassRate).toBe(0.8);
+    expect(s.insights?.codeQuality).toEqual({ lint_warnings: 3 });
+    // Index sig dropped — only the three documented keys are present.
+    expect(Object.keys(s.insights!).sort()).toEqual(['aiUsagePercent', 'codeQuality', 'testPassRate']);
   });
 
   it('maps submission and feedback when present', () => {
@@ -286,5 +459,23 @@ describe('transform: session', () => {
     expect(s.feedback?.codeQualityScore).toBe(5);
     expect(s.attempt).toBe(2);
     expect(s.score).toBe(87);
+  });
+});
+
+describe('transform: webhook endpoint', () => {
+  it('maps populated wire shape', () => {
+    const e = webhookEndpointFromWire({
+      object: 'webhook_endpoint',
+      webhook_url: 'https://hooks.example.com/langos',
+      signing_secret: 'whsec_abc',
+    });
+    expect(e.webhookUrl).toBe('https://hooks.example.com/langos');
+    expect(e.signingSecret).toBe('whsec_abc');
+  });
+
+  it('coerces missing fields to null', () => {
+    const e = webhookEndpointFromWire({});
+    expect(e.webhookUrl).toBeNull();
+    expect(e.signingSecret).toBeNull();
   });
 });

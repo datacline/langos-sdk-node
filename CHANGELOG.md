@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`client.challenges` resource.** `list({status, language, limit, cursor})` and `retrieve(id)` for the read-only `/v1/challenges` and `/v1/challenges/:id` endpoints. Lets partners discover available coding challenges in the customer's library before assigning them to candidates.
 - **`Challenge`, `ChallengeListParams`, `ChallengeStatus` types.** Re-exported from the package root.
 - **`challengeFromWire` transform** with unit-test coverage for both fully-populated and minimum-fields shapes.
+- **`BillingCycle` and `AccountStatus` exported types.** Narrowed unions matching the server contract; partners can now discriminate on these without retyping enum literals.
+
+### Changed
+- **Eliminated `any` from wire-handling code.** Every `*FromWire` transform and every `this.get<...>` / `this.post<...>` resource call is now typed against an internal `Wire<Resource>` interface (declared in `src/core/transform.ts`). The SDK no longer takes raw `any` from the HTTP boundary; mismatches surface at compile time.
+- **Narrowed `Account.billingCycle`.** Was `string`; now `BillingCycle | null` where `BillingCycle = 'monthly' | 'yearly'`. The server emits `'monthly'` or `'yearly'` (Stripe-aligned); free-tier accounts with no Stripe subscription map to `null`. **Forward-compat:** unknown future values (e.g. `'quarterly'`) collapse to `null` rather than throw.
+- **Narrowed `Account.status`.** Was `string`; now `AccountStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'pending'`. Mirrors `normalizeCompanyStatus` on the server. **Forward-compat:** unknown values collapse to `'active'` rather than throw, so partners never see a runtime crash from a server-side enum addition.
+- **Tightened resource methods.** `assessments`, `challenges`, `candidates`, `sessions`, and `account` now type their HTTP responses with `WireListResponse<Wire<Resource>>` / `Wire<Resource>` instead of `any`.
+- **Dropped the catch-all index signature on `SessionInsights`.** Was `[key: string]: unknown`, which silently widened the typed `aiUsagePercent` and `testPassRate` fields back to `unknown` and defeated narrowing. The SessionInsights interface now exposes only the three documented fields (`aiUsagePercent`, `testPassRate`, `codeQuality`); the server doesn't emit additional keys today, so dropping the index sig has no observed runtime impact.
+
+### Subtle behavior changes — partner action may be required
+- **`account.billingCycle` is no longer assignable to arbitrary `string`.** Partners holding the value in a wider variable will need to widen explicitly (`as string`) or, preferably, narrow on the union. If you persisted custom non-canonical billing cycles via SDK before this release, they now appear as `null` rather than the original string.
+- **`account.status` is no longer assignable to arbitrary `string`.** Same treatment: partners storing the raw status as a wider type will need an explicit cast. Unknown server statuses now read as `'active'` rather than the raw value.
+- **`session.insights[someExtraKey]`** no longer compiles. The catch-all index signature was the only thing letting partners reach in for undocumented keys; if you were doing this, surface the field on the server side or stop relying on it.
 
 ### Documentation
 - **Broaden audience framing.** README intro now positions the SDK for any hiring workflow integration — not specifically ATS partners.
