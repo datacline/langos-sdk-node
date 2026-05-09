@@ -5,6 +5,7 @@ import { ChallengesResource } from './resources/challenges.js';
 import { SessionsResource } from './resources/sessions.js';
 import { Webhooks } from './resources/webhooks.js';
 import { noopLogger } from './core/logger.js';
+import { DEFAULT_MAX_RETRY_AFTER_MS } from './core/retry.js';
 import type { ResolvedClientConfig } from './core/request.js';
 import type { LangosOptions } from './types.js';
 
@@ -56,6 +57,7 @@ export class Langos {
       baseUrl: (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, ''),
       timeout: options.timeout ?? DEFAULT_TIMEOUT_MS,
       maxRetries: options.maxRetries ?? DEFAULT_MAX_RETRIES,
+      maxRetryAfterMs: options.maxRetryAfterMs ?? DEFAULT_MAX_RETRY_AFTER_MS,
       fetchImpl,
       logger: options.logger ?? noopLogger,
       appName: options.appName,

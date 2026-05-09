@@ -215,3 +215,18 @@ export class LangosSignatureVerificationError extends LangosError {
     this.name = 'LangosSignatureVerificationError';
   }
 }
+
+/**
+ * Thrown by `Langos.webhooks.constructEvent` when the webhook signature
+ * verifies successfully but the body cannot be parsed as JSON. Distinct from
+ * {@link LangosSignatureVerificationError} because the failure modes have
+ * different operational responses: signature failure suggests forgery / config
+ * drift (rotate secret, alert), payload failure suggests a producer bug or a
+ * proxy that mutated the body (file an upstream ticket, do NOT rotate).
+ */
+export class LangosWebhookPayloadError extends LangosError {
+  constructor(reason: string) {
+    super(`Webhook payload could not be parsed: ${reason}`);
+    this.name = 'LangosWebhookPayloadError';
+  }
+}

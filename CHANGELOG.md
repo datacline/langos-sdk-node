@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Webhook signature header hardening.** `Webhooks.constructEvent` now joins multi-value `Langos-Signature` headers (string[] from proxies that split duplicate headers) with `,` so every `v1=` entry from every copy is considered — previously only `[0]` was used and signatures from rotation copies were silently dropped. Empty arrays now throw a clear `LangosSignatureVerificationError` instead of crashing on `[0]!`. Signature headers longer than 4096 characters are rejected before parsing as a CPU-DoS guard against attacker-controlled input.
+
+### Changed
+- **Retry-After cap raised from 32s to 5 minutes** and made configurable via the new `maxRetryAfterMs` client option. The previous cap silently truncated realistic rate-limit windows (60–300s), defeating the header. Server-supplied values that are negative, NaN, or exceed the cap now fall back to exponential backoff (rather than silently honoring an attacker-controlled "sleep for 3 years" value).
+- **`Webhooks.constructEvent` no longer conflates malformed-JSON payloads with signature failure.** Bodies that pass HMAC verification but fail `JSON.parse` now throw the new `LangosWebhookPayloadError` instead of `LangosSignatureVerificationError` — the two have different operational responses (file an upstream ticket vs rotate the secret).
+
 ### Added
+- **`LangosWebhookPayloadError`.** New error class for webhook payloads that pass signature verification but cannot be parsed as JSON. Re-exported from the package root.
+- **`maxRetryAfterMs` client option.** Configurable upper bound (default `300_000`) on how long the SDK will wait when honoring a `Retry-After` header.
 - **`client.challenges` resource.** `list({status, language, limit, cursor})` and `retrieve(id)` for the read-only `/v1/challenges` and `/v1/challenges/:id` endpoints. Lets partners discover available coding challenges in the customer's library before assigning them to candidates.
 - **`Challenge`, `ChallengeListParams`, `ChallengeStatus` types.** Re-exported from the package root.
 - **`challengeFromWire` transform** with unit-test coverage for both fully-populated and minimum-fields shapes.

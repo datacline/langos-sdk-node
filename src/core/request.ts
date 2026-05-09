@@ -14,6 +14,7 @@ export interface ResolvedClientConfig {
   baseUrl: string;
   timeout: number;
   maxRetries: number;
+  maxRetryAfterMs: number;
   fetchImpl: typeof fetch;
   logger: Logger;
   appName: string | undefined;
@@ -105,6 +106,7 @@ export async function makeRequest<T>(
         const delay = backoffDelay(
           attempt,
           Number.isFinite(retryAfter) ? (retryAfter as number) : undefined,
+          cfg.maxRetryAfterMs,
         );
         cfg.logger.debug({ delay, status }, 'langos retry (status)');
         await sleep(delay);

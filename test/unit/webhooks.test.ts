@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { Webhooks } from '../../src/resources/webhooks.js';
-import { LangosSignatureVerificationError } from '../../src/core/errors.js';
+import {
+  LangosSignatureVerificationError,
+  LangosWebhookPayloadError,
+} from '../../src/core/errors.js';
 
 // Real signing secrets are at least 32 random bytes server-side. Use a
 // 16+ char fixture to satisfy the SDK's minimum-length check while staying
@@ -74,10 +77,18 @@ describe('Webhooks.constructEvent', () => {
     );
   });
 
-  it('rejects non-JSON payload after sig passes', () => {
+  it('rejects non-JSON payload after sig passes with LangosWebhookPayloadError (NOT signature error)', () => {
     const garbage = 'not-json';
     const sig = `t=${now},v1=${sign(now, garbage)}`;
+    // Signature verifies, but body is junk — this is a producer/proxy bug,
+    // not forgery. Distinct error class so partner code can branch on the
+    // remediation (file upstream ticket vs rotate secret).
     expect(() => Webhooks.constructEvent(garbage, sig, SECRET)).toThrow(
+      LangosWebhookPayloadError,
+    );
+    // Defensively: must NOT be the signature error (subclasses both extend
+    // LangosError, and we explicitly want them to be distinguishable).
+    expect(() => Webhooks.constructEvent(garbage, sig, SECRET)).not.toThrow(
       LangosSignatureVerificationError,
     );
   });
@@ -144,5 +155,43 @@ describe('Webhooks.constructEvent', () => {
         /Malformed signature header/,
       );
     });
+  });
+
+  // Some proxies / Node frameworks expose duplicate `Langos-Signature`
+  // headers as a string[]. The previous implementation took only [0] and
+  // silently dropped signatures from rotation copies. We now join with `,`
+  // so every v1= entry from every copy gets considered.
+  describe('multi-value (string[]) signature header', () => {
+    it('joins multi-value array so a signature in a later entry still matches', () => {
+      // First entry has a bogus signature; the second has the real one.
+      // Pre-fix this would have thrown "no signatures matched" because
+      // [0] was selected and [1] was discarded.
+      const sigs = [`t=${now},v1=${'aa'.repeat(32)}`, `t=${now},v1=${sign(now, body)}`];
+      const evt = Webhooks.constructEvent(body, sigs, SECRET);
+      expect(evt.id).toBe('evt_1');
+    });
+
+    it('rejects empty array as missing header (does not crash on [0]!)', () => {
+      // Pre-fix: `signatureHeader[0]!` on `[]` crashes with TS non-null
+      // assertion runtime undefined; post-fix: throws a clear error.
+      expect(() => Webhooks.constructEvent(body, [], SECRET)).toThrow(
+        LangosSignatureVerificationError,
+      );
+      expect(() => Webhooks.constructEvent(body, [], SECRET)).toThrow(
+        /Missing Langos-Signature header/,
+      );
+    });
+  });
+
+  it('rejects signature header longer than 4096 chars (CPU-DoS guard)', () => {
+    // Real Langos-Signature is ~80 chars. 5 KiB of garbage is unambiguously
+    // attacker-controlled — refuse to even tokenize.
+    const huge = 'v1=' + 'a'.repeat(5_000);
+    expect(() => Webhooks.constructEvent(body, huge, SECRET)).toThrow(
+      LangosSignatureVerificationError,
+    );
+    expect(() => Webhooks.constructEvent(body, huge, SECRET)).toThrow(
+      /exceeds 4096 chars/,
+    );
   });
 });
