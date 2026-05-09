@@ -70,7 +70,6 @@ export interface SessionInsights {
   aiUsagePercent: number | null;
   testPassRate: number | null;
   codeQuality: Record<string, unknown> | null;
-  [key: string]: unknown;
 }
 
 export interface SessionFeedback {
@@ -135,6 +134,39 @@ export interface Session {
 export type PlanTier = 'free' | 'starter' | 'mid_tier' | 'growth' | 'custom';
 
 /**
+ * Stripe-aligned subscription cycle the company is billed on.
+ *
+ *   - `'monthly'` — standard month-to-month plan.
+ *   - `'yearly'`  — annual subscription (Stripe `interval=year`).
+ *   - `null`      — no Stripe subscription on file (free tier, internal
+ *                   accounts, or pre-billing legacy rows).
+ *
+ * The server may add new cycles in the future (e.g. `'quarterly'`); when that
+ * happens an older SDK falls back to `null` rather than throwing, so partner
+ * code keeps working until they upgrade. See `billingCycleFromWire` in
+ * `core/transform.ts`.
+ */
+export type BillingCycle = 'monthly' | 'yearly';
+
+/**
+ * Lifecycle state for the company's billing relationship.
+ *
+ *   - `'trialing'` — within the initial trial window (`trial_ends_at` set).
+ *   - `'active'`   — paid subscription in good standing, OR a free-tier
+ *                    account post-trial (free tier persists as `'active'`).
+ *   - `'past_due'` — Stripe reported a payment failure; partners should treat
+ *                    this as "service is degraded / will be cut off soon".
+ *   - `'canceled'` — subscription explicitly cancelled (Stripe spelling, one
+ *                    `l`).
+ *   - `'pending'`  — incomplete signup or payment-method confirmation pending.
+ *
+ * If the server starts emitting a status the SDK doesn't recognize, the
+ * transform falls back to `'active'` rather than throwing — consumers should
+ * never see a runtime error from a forward-compatible enum addition.
+ */
+export type AccountStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'pending';
+
+/**
  * Account info for the Langos company that owns the calling integration.
  * Returned by `client.account.retrieve()`.
  */
@@ -154,8 +186,17 @@ export interface Account {
    * tier strings.
    */
   planTier: PlanTier;
-  billingCycle: string;
-  status: string;
+  /**
+   * Stripe-aligned billing cadence; `null` for accounts without a Stripe
+   * subscription (free tier, internal). Narrower than the legacy `string`
+   * type — see {@link BillingCycle}.
+   */
+  billingCycle: BillingCycle | null;
+  /**
+   * Subscription lifecycle. Narrower than the legacy `string` type — see
+   * {@link AccountStatus}.
+   */
+  status: AccountStatus;
   sessionsUsed: number;
   /** `null` on unlimited plans (e.g. `custom`). */
   sessionsLimit: number | null;

@@ -4,6 +4,7 @@ import {
   webhookEndpointFromWire,
   webhookEndpointParamsToWire,
 } from '../core/transform.js';
+import type { WireAccount, WireWebhookEndpoint } from '../core/transform.js';
 import type {
   Account,
   RequestOptions,
@@ -39,7 +40,7 @@ export class AccountResource extends APIResource {
    * @returns {Promise<Account>}
    */
   async retrieve(options?: RequestOptions): Promise<Account> {
-    const w = await this.get<any>('/account', undefined, options);
+    const w = await this.get<WireAccount>('/account', undefined, options);
     return accountFromWire(w);
   }
 
@@ -58,7 +59,7 @@ export class AccountResource extends APIResource {
     options?: RequestOptions,
   ): Promise<WebhookEndpoint> {
     const body = webhookEndpointParamsToWire(params);
-    const w = await this.patch<any>('/account/webhook-endpoint', body, options);
+    const w = await this.patch<WireWebhookEndpoint>('/account/webhook-endpoint', body, options);
     return webhookEndpointFromWire(w);
   }
 }
