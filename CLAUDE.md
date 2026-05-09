@@ -20,7 +20,7 @@ import { Langos } from '@datacline/langos-sdk-node';
 
 const client = new Langos({
   apiKey: process.env.LANGOS_API_KEY!,        // langos_live_... or langos_test_...
-  // baseUrl optional — defaults to https://api.langos.io/v1
+  // baseUrl optional — defaults to https://app.langos.io/api/v1
 });
 ```
 
@@ -70,12 +70,23 @@ console.log(wh.signingSecret);  // store this — can't read it back later
 
 ### `client.assessments`
 ```ts
-// List — async iterable, walks all pages
-for await (const a of client.assessments.list()) {
+// List — async iterable, walks all pages.
+// Note: list() returns Promise<AsyncIterablePage>, so the for-await needs `await`.
+for await (const a of await client.assessments.list()) {
   console.log(a.id, a.name, a.challengeCount);
 }
 
 const a = await client.assessments.retrieve('asm_abc');
+```
+
+### `client.challenges`
+```ts
+// List published challenges available to assign
+for await (const ch of await client.challenges.list({ status: 'published', language: 'python' })) {
+  console.log(ch.id, ch.title, ch.difficulty, ch.timeLimitMinutes);
+}
+
+const ch = await client.challenges.retrieve('ch_abc');
 ```
 
 ### `client.candidates`
@@ -86,7 +97,7 @@ const c = await client.candidates.create({
 });
 
 // List (filter by status, assessment, etc.)
-for await (const c of client.candidates.list({ status: 'completed' })) {
+for await (const c of await client.candidates.list({ status: 'completed' })) {
   ...
 }
 
@@ -96,7 +107,7 @@ const c = await client.candidates.retrieve('cand_xyz');
 await client.candidates.cancel('cand_xyz');
 
 // All sessions for a candidate (re-attempts, etc.)
-for await (const s of client.candidates.listSessions('cand_xyz')) {
+for await (const s of await client.candidates.listSessions('cand_xyz')) {
   ...
 }
 ```
@@ -262,29 +273,33 @@ If you're an AI assistant helping a developer **work on this SDK** (not just use
 
 ## Layout
 
+This repo is standalone (`github.com/datacline/langos-sdk-node`). Layout:
+
 ```
-packages/sdk-node/
-  src/
-    index.ts           # Public exports (Langos, error classes, types, webhooks)
-    client.ts          # Langos class — constructor, baseUrl, auth, resources
-    types.ts           # Public types (PlanCaps, Candidate, Session, webhook events)
-    core/
-      request.ts       # fetch wrapper: auth header, retry, idempotency
-      retry.ts         # exponential backoff for 5xx/408/425/429
-      errors.ts        # LangosAPIError + subclasses (Forbidden, RateLimit, ...)
-      pagination.ts    # AsyncIterable cursor walker
-      transform.ts     # snake_case ↔ camelCase between wire and public API
-      idempotency.ts   # auto Idempotency-Key for unsafe methods
-    resources/
-      account.ts       # client.account
-      assessments.ts   # client.assessments
-      candidates.ts    # client.candidates
-      sessions.ts      # client.sessions
-      webhooks.ts      # Langos.webhooks.constructEvent
-  test/
-    unit/              # vitest, no network — 46 tests, ~1.5s
-    integration/       # vitest, live local stack — 36 tests
-  tsup.config.ts       # dual ESM+CJS build
+src/
+  index.ts             # Public exports (Langos, error classes, types, webhooks)
+  client.ts            # Langos class — constructor, baseUrl, auth, resources
+  types.ts             # Public types (PlanCaps, Candidate, Challenge, Session, webhook events)
+  core/
+    request.ts         # fetch wrapper: auth header, retry, idempotency
+    retry.ts           # exponential backoff for 5xx/408/429 (409 not retried)
+    errors.ts          # LangosAPIError + subclasses (Forbidden, RateLimit, ...)
+    pagination.ts      # AsyncIterable cursor walker
+    transform.ts       # snake_case ↔ camelCase between wire and public API
+    idempotency.ts     # auto Idempotency-Key for unsafe methods
+  resources/
+    account.ts         # client.account
+    assessments.ts     # client.assessments
+    candidates.ts      # client.candidates
+    challenges.ts      # client.challenges
+    sessions.ts        # client.sessions
+    webhooks.ts        # Langos.webhooks.constructEvent
+test/
+  unit/                # vitest, no network — runs in CI on Node 18.17/20/22
+  integration/         # vitest, live monorepo stack — gated behind LANGOS_TEST_LIVE
+openapi/
+  v1-openapi.yaml      # vendored copy of the server's OpenAPI spec
+tsup.config.ts         # dual ESM+CJS build
 ```
 
 ## Common dev tasks
@@ -300,35 +315,44 @@ pnpm build                 # tsup → dist/{esm,cjs,types}
 1. `src/resources/<name>.ts` — extend the resource base, define methods
 2. Wire into `src/client.ts` as `this.<name> = new <Name>Resource(this)`
 3. Public types into `src/types.ts` (camelCase, even if wire is snake_case)
-4. Unit test in `test/unit/<name>.test.ts`
-5. Integration test in `test/integration/<name>.test.ts` if it hits a new endpoint
-6. Update server-side OpenAPI: `codestream-app/server/docs/v1-openapi.yaml`
-7. Update prose docs: `docs/api/{getting-started,lifecycle,...}.md`
-8. Bump alpha version in `package.json`
+4. `<name>FromWire` transform in `src/core/transform.ts`
+5. Re-export type from `src/index.ts`
+6. Unit test in `test/unit/transform.test.ts` (transform mapping) — and a resource-level test if methods do something non-trivial
+7. Bump version in `package.json` (`0.2.0-alpha.X` → `0.2.0-alpha.X+1`)
+8. Add an `sdk-contract` scenario in the monorepo (`examples/demo-customer/scenarios.sh` + `codestream-app/server/tests/sdk/scenariosPerTier.runner.js`) — separate PR after the new SDK version publishes
+9. Re-vendor the OpenAPI spec: `pnpm run vendor:openapi` (assumes a sibling `langos-ide` checkout)
 
 ### Adding a webhook event
-Update three places in lockstep:
-- `src/types.ts` — add to the event union
-- `docs/api/lifecycle.md` AND `docs/api/webhooks.md` — payload + when it fires
-- Server-side publisher in `codestream-app/server/services/customer/webhookPublisher.js`
+Update both:
+- `src/types.ts` — add to `WebhookEventType` union AND extend the `Event` discriminated union with a new `BaseEvent<'foo.bar', FooData>`
+- The server-side publisher in the monorepo (separate PR) is the source of truth for which events actually fire — keep this union in lockstep with `services/customer/webhookPublisher.js`
 
-### Regenerating prose docs
-The OpenAPI spec at `codestream-app/server/docs/v1-openapi.yaml` is the source of truth — the Scalar viewer at `docs/api/index.html` consumes it directly, no codegen step. For prose pages, regenerate by hand from the current SDK + OpenAPI surface.
+### Regenerating types from OpenAPI
+`src/generated/paths.d.ts` is generated from the vendored `openapi/v1-openapi.yaml`. To refresh after a server schema change:
 
-### Publishing (deferred — needs npm scope claim)
 ```bash
-npm publish --access restricted
+pnpm run vendor:openapi   # copies from sibling langos-ide checkout
+pnpm run generate         # runs openapi-typescript
+```
+
+Committed types are the source of truth — CI does not regenerate them.
+
+### Publishing
+Triggered by pushing a `v*` tag — `.github/workflows/release.yml` runs lint+build+test, verifies the tag matches `package.json` version, validates the tarball contents, then publishes to npm with provenance and creates a GitHub Release. No manual `npm publish`.
+
+```bash
+# After your PR is merged to main:
+git checkout main && git pull
+git tag v0.2.0-alpha.X
+git push origin v0.2.0-alpha.X
+# release.yml runs automatically; watch via gh run watch
 ```
 
 ## Conventions worth preserving
 
 - **Zero runtime deps.** Anything beyond Node built-ins needs justification.
 - **camelCase in public API, snake_case on wire.** `core/transform.ts` handles both directions; never leak snake_case into public types.
-- **AsyncIterable for lists.** All list endpoints walk pages automatically — no `nextPage()` callbacks.
+- **AsyncIterable for lists.** All list endpoints walk pages automatically — `list()` returns `Promise<AsyncIterablePage>`, so consumers `for await (... of await client.x.list())`.
 - **Auto idempotency for unsafe methods.** Generated if caller didn't pass one explicitly.
 - **Typed errors.** Don't return raw `Error`; classify into `LangosAPIError` subclasses.
-- **No silent retries on 4xx (except 408/425/429).** 5xx retries with exponential backoff.
-
-## Where this is heading
-
-Will extract to `github.com/datacline/langos-sdk-node` once npm scope is claimed. The server-side stays in `langos-ide`. After extraction, this file is the SDK repo's onboarding doc — both AI consumers and AI contributors read it.
+- **No silent retries on 4xx (except 408/429).** 409 is intentionally not retried (non-idempotent). 5xx (except 501) retries with exponential backoff.

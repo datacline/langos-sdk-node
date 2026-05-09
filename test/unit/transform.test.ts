@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   accountFromWire,
   assessmentFromWire,
+  challengeFromWire,
   candidateFromWire,
   candidateCreateToWire,
   sessionFromWire,
@@ -70,6 +71,48 @@ describe('transform: assessment', () => {
     expect(a.challengeCount).toBe(3);
     expect(a.createdAt).toBe('2026-05-03T00:00:00Z');
     expect(a.description).toBeNull();
+  });
+});
+
+describe('transform: challenge', () => {
+  it('maps snake_case to camelCase and preserves nullable fields', () => {
+    const c = challengeFromWire({
+      id: 'ch_1',
+      object: 'challenge',
+      title: 'Two Sum',
+      description: 'Find two numbers that sum to a target.',
+      language: 'python',
+      difficulty: 'easy',
+      category: 'algorithms',
+      time_limit_minutes: 30,
+      status: 'published',
+      created_at: '2026-05-03T00:00:00Z',
+    });
+    expect(c.id).toBe('ch_1');
+    expect(c.object).toBe('challenge');
+    expect(c.title).toBe('Two Sum');
+    expect(c.timeLimitMinutes).toBe(30);
+    expect(c.status).toBe('published');
+    expect(c.createdAt).toBe('2026-05-03T00:00:00Z');
+  });
+
+  it('coerces missing optional fields to null', () => {
+    const c = challengeFromWire({
+      id: 'ch_2',
+      object: 'challenge',
+      title: 'Bare-bones',
+      description: null,
+      language: 'go',
+      difficulty: null,
+      category: null,
+      time_limit_minutes: null,
+      status: 'draft',
+      created_at: '2026-05-03T00:00:00Z',
+    });
+    expect(c.description).toBeNull();
+    expect(c.difficulty).toBeNull();
+    expect(c.category).toBeNull();
+    expect(c.timeLimitMinutes).toBeNull();
   });
 });
 

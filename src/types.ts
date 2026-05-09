@@ -22,6 +22,21 @@ export interface Assessment {
   updatedAt: string;
 }
 
+export type ChallengeStatus = 'draft' | 'published' | 'archived';
+
+export interface Challenge {
+  id: string;
+  object: 'challenge';
+  title: string;
+  description: string | null;
+  language: string;
+  difficulty: string | null;
+  category: string | null;
+  timeLimitMinutes: number | null;
+  status: ChallengeStatus;
+  createdAt: string;
+}
+
 export interface Candidate {
   id: string;
   object: 'candidate';
@@ -273,6 +288,10 @@ export interface CandidateListParams extends ListParams {
 
 export interface AssessmentListParams extends ListParams {}
 export interface SessionListParams extends ListParams {}
+export interface ChallengeListParams extends ListParams {
+  status?: ChallengeStatus;
+  language?: string;
+}
 
 /**
  * Per-call request options. Override SDK defaults (timeout, retries) for a

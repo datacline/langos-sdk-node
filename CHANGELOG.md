@@ -7,29 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-- **Webhook empty / short signing secret rejected.** `Webhooks.constructEvent` now requires `secret` to be a non-empty string of at least 16 characters. Prevents a forgery path where a partner who forgot to set `LANGOS_WEBHOOK_SECRET` would silently HMAC events against the empty string, allowing an attacker who knows this default to forge events that pass verification.
-- **Webhook timestamp parser hardened.** The `t=` value in the `Langos-Signature` header is now rejected if it is non-positive, NaN, or larger than `2**32` seconds (past the unix-epoch overflow boundary). Previously `t=0` and `t=-1` parsed as valid integers and only failed via the tolerance check, which is a fail-late posture for a malformed-input class.
-- **Header injection guard on `appName` and `apiKey`.** The `Langos` constructor now rejects strings containing `\r`, `\n`, `\0`, or any C0 control character. These would otherwise let an attacker who controls the partner's `appName` env splice arbitrary headers into every outbound request via the `User-Agent` line. Same guard applies to `apiKey` for the `Authorization` header.
+### Added
+- **`client.challenges` resource.** `list({status, language, limit, cursor})` and `retrieve(id)` for the read-only `/v1/challenges` and `/v1/challenges/:id` endpoints. Lets partners discover available coding challenges in the customer's library before assigning them to candidates.
+- **`Challenge`, `ChallengeListParams`, `ChallengeStatus` types.** Re-exported from the package root.
+- **`challengeFromWire` transform** with unit-test coverage for both fully-populated and minimum-fields shapes.
 
-### Fixed
-- **`WebhookEventType` aligned with server-side publishers.** The union now matches the canonical set emitted by the server (`session.submitted`, `session.completed`, `candidate.cancelled`). The previous test fixture referenced a fictional `candidate.completed` event; that has been corrected. Also adds an `Event` discriminated union so partners can `switch (event.type)` and let the compiler enforce exhaustive handling.
-- **`409 Conflict` no longer auto-retried.** 409 is non-idempotent (duplicate email, version conflict, race against a parallel mutation) — retrying just burns the partner's rate-limit budget and amplifies the conflict. Partners should surface 409 to their caller and resolve the conflict explicitly.
-- **`WebhookEvent.created` matches the server's wire field.** The webhook envelope's timestamp field was typed as `createdAt`, but the server-side publisher emits `created`. Reading `event.createdAt` returned `undefined` at runtime while the type system claimed it was a string. Renamed to `created` on `WebhookEvent` and `BaseEvent` to remove the lie; partners using `event.created` get the real timestamp.
+### Documentation
+- **Broaden audience framing.** README intro now positions the SDK for any hiring workflow integration — not specifically ATS partners.
+- **Add `client.account` and `client.challenges` to README Resources table.**
+- **Expand error handling import list.** README now imports `LangosConflictError` and `LangosSignatureVerificationError` alongside the other typed errors.
+- **Genericize example identifiers.** Removed `greenhouse-app-12345` / `GreenhouseConnector/2.1.0` placeholders from code examples — they implied a specific partner integration we don't ship.
+- **Fix `for await` examples in CLAUDE.md.** Examples were missing the `await` on `client.<resource>.list()` (which returns a `Promise<AsyncIterablePage>`) and would have thrown at runtime.
+- **Correct default `baseUrl` in CLAUDE.md.** Was documented as `https://api.langos.io/v1`; real default is `https://app.langos.io/api/v1`.
+- **Drop stale monorepo references in CLAUDE.md.** Repo is standalone; no more `packages/sdk-node/` paths or pointers to monorepo-internal docs.
+- **Document the release pipeline.** CLAUDE.md now describes the `v*`-tag release workflow (no manual `npm publish`).
 
 ## [0.2.0-alpha.1] - 2026-05-08
 
 ### Added
 - **Customer Partner API SDK** — official Node.js / TypeScript client for the Langos Partner API (`@datacline/langos-sdk-node`)
 - **Assessment resource** — list published assessments, retrieve by id
-- **Challenge resource** — list coding challenges, retrieve by id
 - **Candidate resource** — invite candidates to assessments, list, retrieve, cancel invitations
 - **Session resource** — retrieve scoring results, analytics, and recruiter reports
 - **Account resource** — retrieve workspace plan tier, session quota, feature flags, and webhook configuration
 - **Webhook support** — register webhook endpoints, set signing secrets, validate inbound webhook signatures with `Langos.webhooks.constructEvent`
 - **Pagination** — async iterable cursor-based pagination on all list endpoints
-- **Error handling** — typed error classes: `LangosAPIError`, `LangosAuthenticationError`, `LangosForbiddenError`, `LangosNotFoundError`, `LangosBadRequestError`, `LangosRateLimitError`, `LangosServerError`, `LangosConnectionError`, `LangosTimeoutError`
-- **Automatic retries** — configurable exponential backoff with jitter on 5xx and `408`/`409`/`429` (max 2 retries by default)
+- **Error handling** — typed error classes: `LangosAPIError`, `LangosAuthenticationError`, `LangosForbiddenError`, `LangosNotFoundError`, `LangosBadRequestError`, `LangosConflictError`, `LangosRateLimitError`, `LangosServerError`, `LangosConnectionError`, `LangosTimeoutError`, `LangosSignatureVerificationError`
+- **Automatic retries** — configurable exponential backoff with jitter on 5xx (except 501) and `408`/`429` (max 2 retries by default). `409 Conflict` is intentionally not retried (non-idempotent)
 - **Idempotency** — automatic `Idempotency-Key` header generation for safe POST/PATCH/DELETE/PUT, honors `Retry-After` headers
 - **Zero runtime dependencies** — uses only Node.js built-ins (`fetch`, `crypto`)
 - **Dual module distribution** — ESM (`.mjs`), CommonJS (`.cjs`), and TypeScript declaration files (`.d.ts`)

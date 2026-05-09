@@ -2,7 +2,7 @@
 
 Official Node.js / TypeScript SDK for the Langos Partner API.
 
-This SDK is for ATS partners (Greenhouse, Lever, Ashby, custom in-house ATSs) embedding Langos coding assessments into their hiring workflow. It wraps the public Partner API at `app.langos.io/api/v1`.
+Use this SDK to wire Langos coding assessments into any hiring workflow. Wraps the public Partner API at `app.langos.io/api/v1`.
 
 > **Status:** alpha. Surface is small (assessments, candidates, sessions, webhook signature verification) and may change before `1.0.0`.
 
@@ -35,7 +35,7 @@ const candidate = await client.candidates.create({
   email: 'jane@example.com',
   name: 'Jane Doe',
   assessmentId: 'asm_abc',
-  externalId: 'greenhouse-app-12345',
+  externalId: 'your-app-12345',
 });
 console.log('Invitation URL:', candidate.invitationUrl);
 
@@ -63,7 +63,9 @@ The `account.integration.provider` field tells you which path your key is using:
 
 | Resource | Methods |
 |---|---|
+| `client.account` | `retrieve`, `setWebhookEndpoint` |
 | `client.assessments` | `list`, `retrieve` |
+| `client.challenges` | `list`, `retrieve` |
 | `client.candidates` | `list`, `retrieve`, `create`, `cancel` |
 | `client.sessions` | `retrieve`, `listForCandidate` |
 | `Langos.webhooks` | `constructEvent` (signature verification) |
@@ -97,10 +99,12 @@ import {
   LangosForbiddenError,
   LangosNotFoundError,
   LangosBadRequestError,
+  LangosConflictError,
   LangosRateLimitError,
   LangosServerError,
   LangosConnectionError,
   LangosTimeoutError,
+  LangosSignatureVerificationError,
 } from '@datacline/langos-sdk-node';
 
 try {
@@ -127,7 +131,7 @@ For unsafe methods (`POST`, `PATCH`, `DELETE`, `PUT`), an `Idempotency-Key` head
 ```ts
 await client.candidates.create(
   { email: 'x@y.com', assessmentId: 'asm_abc' },
-  { idempotencyKey: 'greenhouse-app-12345-v1' },
+  { idempotencyKey: 'your-app-12345-v1' },
 );
 ```
 
@@ -172,7 +176,7 @@ const client = new Langos({
   baseUrl: 'https://app.langos.io/api/v1',  // override for self-host / staging
   timeout: 30_000,                           // ms
   maxRetries: 2,
-  appName: 'GreenhouseConnector/2.1.0',     // appended to User-Agent
+  appName: 'YourApp/1.0.0',                  // appended to User-Agent
   logger: pino(),                            // optional Pino-shaped logger
   telemetry: false,                          // opt out of X-Langos-Client-Telemetry
   fetch: customFetch,                        // inject custom fetch
