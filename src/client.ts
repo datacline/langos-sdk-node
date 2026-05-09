@@ -1,6 +1,7 @@
 import { AccountResource } from './resources/account.js';
 import { AssessmentsResource } from './resources/assessments.js';
 import { CandidatesResource } from './resources/candidates.js';
+import { ChallengesResource } from './resources/challenges.js';
 import { SessionsResource } from './resources/sessions.js';
 import { Webhooks } from './resources/webhooks.js';
 import { noopLogger } from './core/logger.js';
@@ -15,6 +16,7 @@ export class Langos {
   readonly account: AccountResource;
   readonly assessments: AssessmentsResource;
   readonly candidates: CandidatesResource;
+  readonly challenges: ChallengesResource;
   readonly sessions: SessionsResource;
 
   /**
@@ -63,6 +65,7 @@ export class Langos {
     this.account = new AccountResource(this.cfg);
     this.assessments = new AssessmentsResource(this.cfg);
     this.candidates = new CandidatesResource(this.cfg);
+    this.challenges = new ChallengesResource(this.cfg);
     this.sessions = new SessionsResource(this.cfg);
   }
 }

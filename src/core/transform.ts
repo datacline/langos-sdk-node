@@ -5,6 +5,8 @@ import type {
   Account,
   Assessment,
   Candidate,
+  Challenge,
+  ChallengeStatus,
   Session,
   SessionAnalytics,
   SessionSubmission,
@@ -25,6 +27,23 @@ export function assessmentFromWire(w: any): Assessment {
     challengeCount: Number(w.challenge_count ?? 0),
     createdAt: String(w.created_at),
     updatedAt: String(w.updated_at),
+  };
+}
+
+/* ------------------------- challenge ------------------------- */
+
+export function challengeFromWire(w: any): Challenge {
+  return {
+    id: String(w.id),
+    object: 'challenge',
+    title: String(w.title),
+    description: w.description ?? null,
+    language: String(w.language),
+    difficulty: w.difficulty ?? null,
+    category: w.category ?? null,
+    timeLimitMinutes: w.time_limit_minutes ?? null,
+    status: w.status as ChallengeStatus,
+    createdAt: String(w.created_at),
   };
 }
 
