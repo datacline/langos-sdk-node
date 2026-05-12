@@ -11,7 +11,10 @@ export {
   LangosServerError,
   LangosConnectionError,
   LangosTimeoutError,
+  LangosAbortError,
+  LangosResponseFormatError,
   LangosSignatureVerificationError,
+  LangosWebhookPayloadError,
 } from './core/errors.js';
 export type {
   LangosErrorBody,
@@ -22,6 +25,8 @@ export type {
   Account,
   AccountFeatures,
   AccountIntegration,
+  AccountStatus,
+  BillingCycle,
   PlanCaps,
   PlanTier,
   Assessment,

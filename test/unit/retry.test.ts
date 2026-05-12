@@ -38,9 +38,49 @@ describe('backoffDelay', () => {
     expect(backoffDelay(0, 5)).toBe(5_000);
     expect(backoffDelay(2, 10)).toBe(10_000);
   });
-  it('caps retry-after at 32_000ms', () => {
-    expect(backoffDelay(0, 1_000)).toBeLessThanOrEqual(32_000);
+
+  it('honors realistic rate-limit Retry-After windows (60s, 300s)', () => {
+    // The previous 32s cap silently truncated server values 60s and 300s,
+    // defeating the header. New default cap is 5 minutes.
+    expect(backoffDelay(0, 60)).toBe(60_000);
+    expect(backoffDelay(0, 300)).toBe(300_000);
   });
+
+  it('falls back to backoff when retry-after exceeds the cap (default 5min)', () => {
+    // 99_999_999s is ~3 years. Honoring this would block the request
+    // forever; fall back to backoff so the partner's caller fast-fails.
+    const d = backoffDelay(0, 99_999_999);
+    expect(d).toBeLessThanOrEqual(500); // attempt 0: backoff bounded by INITIAL_MS
+  });
+
+  it('rejects negative retry-after as nonsensical (falls back to backoff)', () => {
+    const d = backoffDelay(0, -10);
+    // Falls through to randomized exponential backoff; bounded by INITIAL_MS.
+    expect(d).toBeGreaterThan(0);
+    expect(d).toBeLessThanOrEqual(500);
+  });
+
+  it('rejects NaN retry-after (falls back to backoff)', () => {
+    const d = backoffDelay(0, NaN);
+    expect(d).toBeGreaterThan(0);
+    expect(d).toBeLessThanOrEqual(500);
+  });
+
+  it('uses backoff when retry-after is omitted', () => {
+    const d = backoffDelay(0, undefined);
+    expect(d).toBeGreaterThan(0);
+    expect(d).toBeLessThanOrEqual(500);
+  });
+
+  it('honors a configurable per-client maxRetryAfterMs', () => {
+    // Caller wants a tighter ceiling — 30s. Server requests 60s. Should
+    // fall through to backoff rather than honoring the over-cap value.
+    const d = backoffDelay(0, 60, 30_000);
+    expect(d).toBeLessThanOrEqual(500); // backoff, not 60_000
+    // Within-cap value should still be honored verbatim.
+    expect(backoffDelay(0, 20, 30_000)).toBe(20_000);
+  });
+
   it('grows exponentially without retry-after', () => {
     const a = backoffDelay(0);
     const b = backoffDelay(2);

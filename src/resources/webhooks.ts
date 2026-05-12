@@ -1,5 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { LangosSignatureVerificationError } from '../core/errors.js';
+import {
+  LangosSignatureVerificationError,
+  LangosWebhookPayloadError,
+} from '../core/errors.js';
 import type { WebhookEvent } from '../types.js';
 
 const DEFAULT_TOLERANCE_SECONDS = 300;
@@ -14,6 +17,12 @@ const MIN_SECRET_LENGTH = 16;
 // boundary). A negative or zero `t=` in the signature header is also a tampered
 // header — real servers always emit a positive epoch second.
 const MAX_TIMESTAMP_SECONDS = 2 ** 32;
+// Hard cap on the signature header length we'll parse. A real `Langos-Signature`
+// is roughly `t=<10 digits>,v1=<64 hex>` — well under 200 chars even with a
+// few rotated keys. Refuse to parse anything beyond 4 KiB so an attacker
+// can't waste CPU on `,`-splitting an attacker-controlled megabyte string
+// before we even reach HMAC.
+const MAX_SIGNATURE_HEADER_LENGTH = 4096;
 
 /**
  * Webhook helpers. v1.0 ships verification only — outbound delivery from Langos
@@ -43,7 +52,30 @@ export const Webhooks = {
     if (!signatureHeader) {
       throw new LangosSignatureVerificationError('Missing Langos-Signature header');
     }
-    const sigHeader = Array.isArray(signatureHeader) ? signatureHeader[0]! : signatureHeader;
+    // Some proxies / Node frameworks expose duplicate `Langos-Signature`
+    // headers as a string[] (e.g. raw `IncomingMessage.headers` for
+    // set-cookie-style multi-value semantics). Joining with `,` is safe
+    // because `parseSignatureHeader` already splits on `,` — every `t=` and
+    // `v1=` entry from every copy of the header gets considered, and the
+    // mismatch tolerance is just "no signature matched". Picking
+    // `signatureHeader[0]` (the previous behavior) silently dropped the
+    // signatures emitted by other copies of the header, which broke key
+    // rotation when a proxy split versus joined the values inconsistently.
+    let sigHeader: string;
+    if (Array.isArray(signatureHeader)) {
+      if (signatureHeader.length === 0) {
+        throw new LangosSignatureVerificationError('Missing Langos-Signature header');
+      }
+      sigHeader = signatureHeader.join(',');
+    } else {
+      sigHeader = signatureHeader;
+    }
+
+    if (sigHeader.length > MAX_SIGNATURE_HEADER_LENGTH) {
+      throw new LangosSignatureVerificationError(
+        `Signature header exceeds ${MAX_SIGNATURE_HEADER_LENGTH} chars (refusing to parse attacker-controlled oversize input)`,
+      );
+    }
 
     const parsed = parseSignatureHeader(sigHeader);
     if (parsed.timestamp === null || parsed.signatures.length === 0) {
@@ -66,11 +98,18 @@ export const Webhooks = {
       throw new LangosSignatureVerificationError('No signatures matched');
     }
 
+    // Signature has verified at this point. A JSON-parse failure here is a
+    // *payload* problem, not a signature problem — different operational
+    // response (file an upstream/producer ticket; do NOT rotate the secret).
+    // Throw a distinct error so partner handlers can branch on the
+    // remediation, not just log "verification failed" for both.
     let event: WebhookEvent<T>;
     try {
       event = JSON.parse(rawBody) as WebhookEvent<T>;
-    } catch {
-      throw new LangosSignatureVerificationError('Payload is not valid JSON');
+    } catch (err) {
+      throw new LangosWebhookPayloadError(
+        `signature OK but body is not valid JSON: ${(err as Error).message}`,
+      );
     }
 
     return event;

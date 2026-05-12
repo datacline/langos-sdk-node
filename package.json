@@ -1,6 +1,6 @@
 {
   "name": "@datacline/langos-sdk-node",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-alpha.3",
   "description": "Official Node.js / TypeScript SDK for the Langos API.",
   "type": "module",
   "main": "./dist/index.cjs",
