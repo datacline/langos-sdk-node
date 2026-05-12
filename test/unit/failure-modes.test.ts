@@ -198,12 +198,9 @@ describe('LangosConnectionError', () => {
 
 describe('AbortSignal propagation', () => {
   /**
-   * BUG NOTE (see "Real bugs surfaced" in report):
-   * When a partner-supplied AbortSignal fires, request.ts line 81 does:
-   *   `if (userSignal?.aborted) throw networkError`
-   * which re-throws the raw error (AbortError DOMException), NOT a typed
-   * LangosConnectionError. These tests document the ACTUAL behaviour so that
-   * a fix can be validated against them later.
+   * Partner-supplied AbortSignal cancellations are wrapped in a typed
+   * LangosAbortError so callers can `instanceof`-narrow against cancellation
+   * vs other network failure paths.
    */
 
   it('throws when partner signal is pre-aborted before the call starts', async () => {
@@ -386,18 +383,21 @@ describe('Idempotency-Key reuse across retries', () => {
 // ---------------------------------------------------------------------------
 
 describe('Retry-After header parsing', () => {
-  it('numeric Retry-After: small value returns retryAfterSeconds * 1000', () => {
-    // Values under the 32_000ms cap are returned as-is.
+  it('numeric Retry-After: small / realistic values returned as-is', () => {
+    // Cap is now 300_000ms (5min) by default, configurable via maxRetryAfterMs.
     expect(backoffDelay(0, 5)).toBe(5_000);
     expect(backoffDelay(2, 1)).toBe(1_000);
     expect(backoffDelay(0, 30)).toBe(30_000);
+    expect(backoffDelay(0, 60)).toBe(60_000); // realistic rate-limit window
+    expect(backoffDelay(0, 300)).toBe(300_000); // cap value honored exactly
   });
 
-  it('numeric Retry-After: value is capped at 32_000ms (MAX_MS * 4)', () => {
-    // Retry-After: 60 (60_000ms) exceeds the 32_000ms cap.
-    expect(backoffDelay(0, 60)).toBe(32_000);
-    // Absurdly large value is also capped.
-    expect(backoffDelay(0, 9_999_999)).toBe(32_000);
+  it('numeric Retry-After: value over cap falls back to exponential backoff (not silently capped)', () => {
+    // Per the webhook+retry hardening: hostile/over-cap values are rejected,
+    // not truncated. Caller falls through to exponential backoff.
+    const delay = backoffDelay(0, 9_999_999);
+    expect(delay).toBeLessThanOrEqual(500); // initial exponential band
+    expect(delay).toBeGreaterThan(0);
   });
 
   it('HTTP-date Retry-After: parseInt returns NaN — falls back to exponential', () => {

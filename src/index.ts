@@ -11,6 +11,8 @@ export {
   LangosServerError,
   LangosConnectionError,
   LangosTimeoutError,
+  LangosAbortError,
+  LangosResponseFormatError,
   LangosSignatureVerificationError,
   LangosWebhookPayloadError,
 } from './core/errors.js';

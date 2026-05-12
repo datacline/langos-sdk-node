@@ -208,6 +208,34 @@ export class LangosTimeoutError extends LangosError {
   }
 }
 
+/** Thrown when a partner-supplied AbortSignal cancels the request. */
+export class LangosAbortError extends LangosError {
+  readonly cause: unknown;
+  constructor(cause: unknown) {
+    super('Request aborted by caller');
+    this.name = 'LangosAbortError';
+    this.cause = cause;
+  }
+}
+
+/**
+ * Thrown when a 2xx response body cannot be parsed as JSON. Distinguishes
+ * "server returned the wrong content-type" (e.g. HTML from a SPA fallback) from
+ * an empty/no-content 204.
+ */
+export class LangosResponseFormatError extends LangosError {
+  readonly contentType: string | null;
+  readonly bodyPreview: string;
+  constructor(contentType: string | null, bodyPreview: string) {
+    super(
+      `Expected JSON response, got ${contentType ?? 'unknown content-type'}: ${bodyPreview.slice(0, 120)}`,
+    );
+    this.name = 'LangosResponseFormatError';
+    this.contentType = contentType;
+    this.bodyPreview = bodyPreview;
+  }
+}
+
 /** Thrown by `Langos.webhooks.constructEvent` when signature verification fails. */
 export class LangosSignatureVerificationError extends LangosError {
   constructor(reason: string) {

@@ -1,6 +1,8 @@
 import {
   LangosAPIError,
+  LangosAbortError,
   LangosConnectionError,
+  LangosResponseFormatError,
   LangosTimeoutError,
 } from './errors.js';
 import { shouldRetry, backoffDelay, sleep } from './retry.js';
@@ -79,7 +81,7 @@ export async function makeRequest<T>(
         ac.signal.aborted &&
         !userSignal?.aborted &&
         (networkError as { name?: string })?.name === 'AbortError';
-      if (userSignal?.aborted) throw networkError;
+      if (userSignal?.aborted) throw new LangosAbortError(networkError);
       if (attempt < userMaxRetries && shouldRetry(null, true)) {
         const delay = backoffDelay(attempt);
         cfg.logger.debug({ delay, err: String(networkError) }, 'langos retry (network)');
@@ -119,6 +121,15 @@ export async function makeRequest<T>(
     }
 
     if (status === 204) return undefined as unknown as T;
+
+    // Defensive: a 2xx response from the wrong server (e.g. SPA fallback at the
+    // wrong baseUrl) is HTML with content-type text/html. Catch this loud here
+    // rather than silently casting garbage downstream.
+    const ctype = response!.headers.get('content-type');
+    if (ctype && !/^application\/(json|problem\+json)/i.test(ctype)) {
+      const text = await response!.text();
+      throw new LangosResponseFormatError(ctype, text);
+    }
 
     const data = await safeReadJson(response!);
     return data as T;

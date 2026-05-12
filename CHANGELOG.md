@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Retry-After parsing**: eight tests — numeric (small values, capped per `maxRetryAfterMs`), HTTP-date (falls back to exponential), negative, NaN, missing, and two integration tests
 
 ### Added
+- **`LangosAbortError`.** New error class thrown when a partner-supplied `AbortSignal` cancels an in-flight request. Previously the SDK re-threw the raw `AbortError` DOMException, making cancellation indistinguishable from generic network failures.
+- **`LangosResponseFormatError`.** New error class thrown when a 2xx response has a non-JSON content-type (e.g. SPA HTML at a misconfigured baseUrl). Prevents the SDK from silently casting garbage into resource objects.
 - **`LangosWebhookPayloadError`.** New error class for webhook payloads that pass signature verification but cannot be parsed as JSON. Re-exported from the package root.
 - **`maxRetryAfterMs` client option.** Configurable upper bound (default `300_000`) on how long the SDK will wait when honoring a `Retry-After` header.
 - **`client.challenges` resource.** `list({status, language, limit, cursor})` and `retrieve(id)` for the read-only `/v1/challenges` and `/v1/challenges/:id` endpoints. Lets partners discover available coding challenges in the customer's library before assigning them to candidates.
