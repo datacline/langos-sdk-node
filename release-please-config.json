@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": false,
+  "prerelease": true,
+  "prerelease-type": "alpha",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "draft": false,
+  "packages": {
+    ".": {
+      "package-name": "@datacline/langos-sdk-node",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
